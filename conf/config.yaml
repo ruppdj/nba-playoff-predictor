@@ -1,0 +1,367 @@
+# =============================================================================
+# NBA Playoff Predictor — Central Configuration
+# =============================================================================
+
+# ── Season range ─────────────────────────────────────────────────────────────
+seasons:
+  start: 1984          # Modern 16-team bracket era begins
+  end: 2025            # Last completed season (2025-26 season is current)
+  current: 2026        # Current season for prediction target
+  aberrant:            # Seasons with unusual circumstances — add season_flag feature
+    - 2012             # Lockout — 66-game season
+    - 2020             # Bubble season — no true home court advantage
+
+# ── Era definitions ──────────────────────────────────────────────────────────
+# Justified in notebook 05_era_normalization.ipynb by visualizing pace,
+# ORtg, and 3PA rate trends with breakpoint annotations.
+eras:
+  showtime:   {start: 1984, end: 1994, label: "Showtime/Physical"}
+  defensive:  {start: 1995, end: 2004, label: "Defensive Era"}
+  transition: {start: 2005, end: 2014, label: "Transition Era"}
+  analytics:  {start: 2015, end: 9999, label: "Analytics/3-and-D Era"}
+
+# ── Paths ────────────────────────────────────────────────────────────────────
+paths:
+  raw:
+    bball_ref:
+      team_stats:     data/raw/bball_ref/team_stats/
+      player_stats:   data/raw/bball_ref/player_stats/
+      playoff_series: data/raw/bball_ref/playoff_series/
+    nba_api:
+      team_game_logs:    data/raw/nba_api/team_game_logs/
+      player_game_logs:  data/raw/nba_api/player_game_logs/
+      injury_reports:    data/raw/nba_api/injury_reports/
+    kaggle:
+      supplemental: data/raw/kaggle/supplemental/
+  processed:
+    team_features:   data/processed/team_season_features.parquet
+    player_features: data/processed/player_season_features.parquet
+    series_dataset:  data/processed/series_dataset.parquet
+    injury:          data/processed/injury_adjusted.parquet
+    era_normalized:  data/processed/era_normalized.parquet
+    checksums:       data/processed/checksums.txt
+  predictions:
+    input_2026:  data/predictions/2026/bracket_input.csv
+    output_2026: data/predictions/2026/bracket_output.csv
+  models:
+    trained:    models/trained/
+    calibrated: models/calibrated/
+  reports:
+    figures: reports/figures/
+
+# ── Scraping settings ────────────────────────────────────────────────────────
+scraping:
+  bball_ref:
+    base_url: "https://www.basketball-reference.com"
+    rate_limit_seconds: 5.0         # seconds between requests
+    cache_backend: "sqlite"
+    cache_name: "data/raw/bball_ref/http_cache"
+    max_retries: 3
+    retry_backoff_seconds: 30
+  nba_api:
+    rate_limit_seconds: 0.65
+    max_retries: 3
+    headers:
+      Host: "stats.nba.com"
+      User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+      Accept: "application/json, text/plain, */*"
+      Referer: "https://www.nba.com/"
+      x-nba-stats-origin: "stats"
+      x-nba-stats-token: "true"
+
+# ── Team name canonical map ───────────────────────────────────────────────────
+# Maps any known variant to the canonical 3-letter bball-ref abbreviation.
+# This is applied as the FIRST step in every data loader.
+team_name_map:
+  # Atlanta Hawks
+  "Atlanta Hawks": "ATL"
+  "Atlanta": "ATL"
+  "ATL": "ATL"
+  # Boston Celtics
+  "Boston Celtics": "BOS"
+  "Boston": "BOS"
+  "BOS": "BOS"
+  # Brooklyn Nets / New Jersey Nets
+  "Brooklyn Nets": "BRK"
+  "Brooklyn": "BRK"
+  "BRK": "BRK"
+  "NJN": "BRK"
+  "New Jersey Nets": "BRK"
+  "New Jersey": "BRK"
+  # Charlotte Hornets / Bobcats
+  "Charlotte Hornets": "CHO"
+  "Charlotte Bobcats": "CHO"
+  "Charlotte": "CHO"
+  "CHO": "CHO"
+  "CHA": "CHO"
+  "CHB": "CHO"
+  # Chicago Bulls
+  "Chicago Bulls": "CHI"
+  "Chicago": "CHI"
+  "CHI": "CHI"
+  # Cleveland Cavaliers
+  "Cleveland Cavaliers": "CLE"
+  "Cleveland": "CLE"
+  "CLE": "CLE"
+  # Dallas Mavericks
+  "Dallas Mavericks": "DAL"
+  "Dallas": "DAL"
+  "DAL": "DAL"
+  # Denver Nuggets
+  "Denver Nuggets": "DEN"
+  "Denver": "DEN"
+  "DEN": "DEN"
+  # Detroit Pistons
+  "Detroit Pistons": "DET"
+  "Detroit": "DET"
+  "DET": "DET"
+  # Golden State Warriors
+  "Golden State Warriors": "GSW"
+  "Golden State": "GSW"
+  "GSW": "GSW"
+  # Houston Rockets
+  "Houston Rockets": "HOU"
+  "Houston": "HOU"
+  "HOU": "HOU"
+  # Indiana Pacers
+  "Indiana Pacers": "IND"
+  "Indiana": "IND"
+  "IND": "IND"
+  # Los Angeles Clippers
+  "Los Angeles Clippers": "LAC"
+  "LA Clippers": "LAC"
+  "LAC": "LAC"
+  # Los Angeles Lakers
+  "Los Angeles Lakers": "LAL"
+  "LA Lakers": "LAL"
+  "LAL": "LAL"
+  # Memphis Grizzlies / Vancouver Grizzlies
+  "Memphis Grizzlies": "MEM"
+  "Memphis": "MEM"
+  "MEM": "MEM"
+  "VAN": "MEM"
+  "Vancouver Grizzlies": "MEM"
+  # Miami Heat
+  "Miami Heat": "MIA"
+  "Miami": "MIA"
+  "MIA": "MIA"
+  # Milwaukee Bucks
+  "Milwaukee Bucks": "MIL"
+  "Milwaukee": "MIL"
+  "MIL": "MIL"
+  # Minnesota Timberwolves
+  "Minnesota Timberwolves": "MIN"
+  "Minnesota": "MIN"
+  "MIN": "MIN"
+  # New Orleans Pelicans / Hornets
+  "New Orleans Pelicans": "NOP"
+  "New Orleans Hornets": "NOP"
+  "New Orleans": "NOP"
+  "NOP": "NOP"
+  "NOH": "NOP"
+  "NOK": "NOP"
+  # New York Knicks
+  "New York Knicks": "NYK"
+  "New York": "NYK"
+  "NYK": "NYK"
+  # Oklahoma City Thunder / Seattle SuperSonics
+  "Oklahoma City Thunder": "OKC"
+  "Oklahoma City": "OKC"
+  "OKC": "OKC"
+  "SEA": "OKC"
+  "Seattle SuperSonics": "OKC"
+  "Seattle": "OKC"
+  # Orlando Magic
+  "Orlando Magic": "ORL"
+  "Orlando": "ORL"
+  "ORL": "ORL"
+  # Philadelphia 76ers
+  "Philadelphia 76ers": "PHI"
+  "Philadelphia": "PHI"
+  "PHI": "PHI"
+  # Phoenix Suns
+  "Phoenix Suns": "PHO"
+  "Phoenix": "PHO"
+  "PHO": "PHO"
+  "PHX": "PHO"
+  # Portland Trail Blazers
+  "Portland Trail Blazers": "POR"
+  "Portland": "POR"
+  "POR": "POR"
+  # Sacramento Kings
+  "Sacramento Kings": "SAC"
+  "Sacramento": "SAC"
+  "SAC": "SAC"
+  # San Antonio Spurs
+  "San Antonio Spurs": "SAS"
+  "San Antonio": "SAS"
+  "SAS": "SAS"
+  # Toronto Raptors
+  "Toronto Raptors": "TOR"
+  "Toronto": "TOR"
+  "TOR": "TOR"
+  # Utah Jazz
+  "Utah Jazz": "UTA"
+  "Utah": "UTA"
+  "UTA": "UTA"
+  # Washington Wizards / Bullets
+  "Washington Wizards": "WAS"
+  "Washington Bullets": "WAS"
+  "Washington": "WAS"
+  "WAS": "WAS"
+  "WSB": "WAS"
+
+# ── Feature lists ────────────────────────────────────────────────────────────
+features:
+  team_season:
+    - ORtg_norm
+    - DRtg_norm
+    - NRtg_norm
+    - Pace_norm
+    - eFG_pct
+    - TS_pct
+    - TOV_pct
+    - ORB_pct
+    - DRB_pct
+    - FT_rate
+    - opp_eFG_pct
+    - opp_TOV_pct
+    - opp_FT_rate
+    - "3PA_rate"
+    - "3P_pct"
+    - SRS
+    - MOV
+    - Win_pct
+    - Playoff_experience_years
+    - Prior_playoff_win_pct
+    - Coach_playoff_experience
+
+  momentum:
+    - L10_NRtg
+    - L20_NRtg
+    - L10_Win_pct
+    - L20_Win_pct
+    - L10_NRtg_delta
+    - L20_NRtg_delta
+    - L10_eFG_pct_delta
+    - L10_DRtg_delta
+    - current_win_streak
+    - L10_home_win_pct
+    - L10_away_win_pct
+
+  player_season:
+    - team_VORP_sum
+    - team_BPM_weighted_avg
+    - team_WS48_weighted_avg
+    - Top3_VORP_sum
+    - Star_player_BPM
+    - Has_AllNBA_player
+    - Top8_WS48_avg
+    - Guard_VORP
+    - Forward_VORP
+    - Center_VORP
+
+  player_momentum:
+    - Star_PTS_L10_delta
+    - Star_TS_pct_L10_delta
+    - Top5_PTS_L10_delta_avg
+    - Top5_MP_L10_avg
+    - Star_GP_L10
+    - Top5_GP_L10_avg
+
+  injury:
+    - adj_VORP_sum
+    - Star_injured
+    - Second_star_injured
+    - Top2_Scorer_availability_avg
+    - Lost_top_scorer
+    - Lost_top2_scorers
+    - Scoring_VORP_available_pct
+    - Top_Rebounder_available
+    - Lost_top_rebounder
+    - Rebounding_capacity_pct
+    - Top_Playmaker_available
+    - Lost_top_playmaker
+    - Top_Defender_available
+    - Roster_VORP_available_pct
+    - Injured_player_count
+    - has_injury_data
+
+  matchup:
+    - delta_NRtg
+    - delta_BPM
+    - delta_VORP
+    - delta_adj_VORP
+    - delta_eFG_pct
+    - delta_DRtg
+    - delta_Pace
+    - delta_Experience
+    - delta_L10_NRtg
+    - delta_Star_BPM
+    - seed_diff
+    - home_court_advantage
+    - conference_East
+    - conference_West
+    - H2H_win_pct
+    - H2H_NRtg_avg
+    - H2H_games_played
+
+  series_length:
+    - Competitive_balance_index
+    - Team_variance
+    - Star_player_variance
+    - Road_performance_gap
+
+  meta:
+    - era_showtime
+    - era_defensive
+    - era_transition
+    - era_analytics
+    - season_flag        # 1 for aberrant seasons (lockout, bubble)
+
+# ── Modeling ─────────────────────────────────────────────────────────────────
+modeling:
+  random_state: 42
+  min_train_seasons: 10   # minimum seasons before first CV test fold
+  cv_n_splits: null        # null = use all available (walk-forward by season)
+
+  injury_availability_thresholds:
+    out: 0.0
+    doubtful: 0.15
+    questionable: 0.50
+    probable: 0.85
+    available: 1.0
+    injured_threshold: 0.5   # below this = "lost" for binary flags
+
+  player_tiers:
+    allnba_bpm_threshold: 5.0    # BPM > 5.0 = All-NBA caliber
+    star_bpm_threshold: 3.0      # BPM > 3.0 = star player
+    rotation_top_n: 8            # top 8 by minutes = rotation depth
+
+  momentum:
+    last_n_games: [10, 20]       # compute L10 and L20 features
+
+  calibration:
+    method: isotonic             # isotonic or sigmoid (Platt)
+
+  optuna:
+    n_trials: 100
+    timeout_seconds: 3600
+
+  monte_carlo:
+    n_simulations: 10000
+
+# ── MLflow ────────────────────────────────────────────────────────────────────
+mlflow:
+  tracking_uri: mlruns/
+  experiments:
+    - series_winner_baseline
+    - series_winner_xgboost
+    - series_winner_lgbm
+    - series_winner_ensemble
+    - series_length_lgbm
+    - series_length_ordinal
+    - bracket_simulation_2026
+  model_registry:
+    winner_model_name: series_winner_champion
+    length_model_name: series_length_champion

@@ -1,0 +1,57 @@
+# ── Data (reproducible via make fetch) ───────────────────────────────────────
+data/raw/
+data/processed/
+
+# Keep predictions (small, meaningful output)
+!data/predictions/
+
+# ── MLflow (large binary artifacts) ──────────────────────────────────────────
+mlruns/*
+!mlruns/.gitkeep
+
+# ── Trained models (reproducible via make train) ─────────────────────────────
+models/trained/
+models/calibrated/
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+**/.ipynb_checkpoints/
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── Type checking / linting ───────────────────────────────────────────────────
+.mypy_cache/
+.ruff_cache/
+
+# ── Conda / virtual envs ─────────────────────────────────────────────────────
+.conda/
+.venv/
+env/
+venv/
+
+# ── Secrets / credentials ────────────────────────────────────────────────────
+.env
+*.key
+kaggle.json
+secrets/
+
+# ── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+
+# ── Requests cache (local only) ───────────────────────────────────────────────
+*.sqlite
+http_cache.sqlite
