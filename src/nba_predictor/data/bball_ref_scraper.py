@@ -14,11 +14,10 @@ Raw HTML is cached to SQLite via requests_cache so scraping only happens once.
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import time
+from io import StringIO
 from pathlib import Path
-from typing import Optional
 
 import pandas as pd
 import requests
@@ -70,7 +69,7 @@ def _get(url: str) -> BeautifulSoup:
     raise RuntimeError(f"All retries exhausted for URL: {url}")
 
 
-def _parse_html_table(soup: BeautifulSoup, table_id: str) -> Optional[pd.DataFrame]:
+def _parse_html_table(soup: BeautifulSoup, table_id: str) -> pd.DataFrame | None:
     """Extract a named HTML table from bball-ref and return as DataFrame."""
     table = soup.find("table", {"id": table_id})
     if table is None:
@@ -78,7 +77,7 @@ def _parse_html_table(soup: BeautifulSoup, table_id: str) -> Optional[pd.DataFra
         return None
     # bball-ref embeds some tables in HTML comments — unwrap if needed
     try:
-        df = pd.read_html(str(table), header=0)[0]
+        df = pd.read_html(StringIO(str(table)), header=0)[0]
     except Exception as exc:
         logger.error("Failed to parse table '%s': %s", table_id, exc)
         return None
@@ -89,6 +88,7 @@ def _parse_html_table(soup: BeautifulSoup, table_id: str) -> Optional[pd.DataFra
 # Team advanced stats
 # =============================================================================
 
+
 def fetch_team_advanced(season: int) -> pd.DataFrame:
     """Fetch team advanced stats for a given season year (e.g. 2025 = 2024-25).
 
@@ -96,21 +96,41 @@ def fetch_team_advanced(season: int) -> pd.DataFrame:
         season, Team (canonical abbrev), Rk, Age, W, L, Pace, ORtg, DRtg,
         NRtg, eFG%, TOV%, ORB%, FT/FGA, eFG%_opp, TOV%_opp, DRB%_opp, FT/FGA_opp
     """
-    url = f"{BASE_URL}/leagues/NBA_{season}_advanced.html"
+    url = f"{BASE_URL}/leagues/NBA_{season}.html"
     soup = _get(url)
     df = _parse_html_table(soup, "advanced-team")
     if df is None:
         return pd.DataFrame()
 
-    # Drop separator rows (where Rk == "Rk")
+    # The team advanced table has a two-row header: group labels (row 0 in pandas)
+    # and actual column names (row 1 in pandas, which appears as data row 0).
+    # Promote the first data row to be the column names.
+    if df.columns[0] != "Rk":
+        df.columns = df.iloc[0]
+        df = df.iloc[1:].reset_index(drop=True)
+        df.columns.name = None
+
+    # Drop NaN separator columns (spacer columns between stat groups)
+    df = df.loc[:, df.columns.notna()]
+
+    # Rename duplicate columns: offense/defense Four Factors share eFG%, TOV%, FT/FGA.
+    # Second occurrence of each becomes opp_<name> (opponent / defensive version).
+    seen: dict[str, int] = {}
+    new_cols = []
+    for col in df.columns:
+        count = seen.get(col, 0) + 1
+        seen[col] = count
+        new_cols.append(f"opp_{col}" if count == 2 else col)
+    df.columns = new_cols
+
+    # Drop separator rows (where Rk == "Rk"), blank rows, and the league-average row
     df = df[df["Rk"].astype(str) != "Rk"].copy()
     df = df[df["Team"].notna()].copy()
+    df = df[df["Team"].astype(str) != "League Average"].copy()
 
     # Normalize team names to canonical abbreviations
     df["Team"] = df["Team"].str.replace(r"\*", "", regex=True).str.strip()
-    df["Team_abbrev"] = df["Team"].map(
-        lambda name: _safe_normalize(name)
-    )
+    df["Team_abbrev"] = df["Team"].map(lambda name: _safe_normalize(name))
 
     df["season"] = season
     logger.info("Fetched team advanced stats for season %d: %d teams", season, len(df))
@@ -145,6 +165,7 @@ def fetch_all_team_advanced(start: int, end: int, out_dir: Path) -> None:
 # Player per-game and advanced stats
 # =============================================================================
 
+
 def fetch_player_pergame(season: int) -> pd.DataFrame:
     """Fetch player per-game stats for a given season."""
     url = f"{BASE_URL}/leagues/NBA_{season}_per_game.html"
@@ -155,8 +176,11 @@ def fetch_player_pergame(season: int) -> pd.DataFrame:
 
     df = df[df["Rk"].astype(str) != "Rk"].copy()
     df = df[df["Player"].notna()].copy()
+    # Drop aggregate multi-team rows (2TM, 3TM, etc.) and NaN team rows
+    df = df[~df["Team"].astype(str).str.match(r"^\d+TM$", na=False)].copy()
+    df = df[df["Team"].notna() & (df["Team"].astype(str) != "nan")].copy()
     df["season"] = season
-    df["Team_abbrev"] = df["Tm"].map(lambda t: _safe_normalize(str(t)))
+    df["Team_abbrev"] = df["Team"].map(lambda t: _safe_normalize(str(t)))
     return df
 
 
@@ -164,14 +188,17 @@ def fetch_player_advanced(season: int) -> pd.DataFrame:
     """Fetch player advanced stats (BPM, VORP, WS, PER, etc.) for a given season."""
     url = f"{BASE_URL}/leagues/NBA_{season}_advanced.html"
     soup = _get(url)
-    df = _parse_html_table(soup, "advanced_stats")
+    df = _parse_html_table(soup, "advanced")
     if df is None:
         return pd.DataFrame()
 
     df = df[df["Rk"].astype(str) != "Rk"].copy()
     df = df[df["Player"].notna()].copy()
+    # Drop aggregate multi-team rows (2TM, 3TM, etc.) and NaN team rows
+    df = df[~df["Team"].astype(str).str.match(r"^\d+TM$", na=False)].copy()
+    df = df[df["Team"].notna() & (df["Team"].astype(str) != "nan")].copy()
     df["season"] = season
-    df["Team_abbrev"] = df["Tm"].map(lambda t: _safe_normalize(str(t)))
+    df["Team_abbrev"] = df["Team"].map(lambda t: _safe_normalize(str(t)))
     return df
 
 
@@ -198,71 +225,61 @@ def fetch_all_player_stats(start: int, end: int, out_dir: Path) -> None:
 # Playoff series results
 # =============================================================================
 
+
 def fetch_playoff_bracket(season: int) -> pd.DataFrame:
     """Fetch playoff series results for a given season.
 
     Returns DataFrame with one row per series:
-        season, round, higher_seed, lower_seed,
-        higher_seed_wins, lower_seed_wins, series_winner, series_length
+        season, round, team_a, team_b, team_a_wins, team_b_wins,
+        series_winner, series_length
+
+    Parsing strategy: bball-ref renders the bracket inside div#div_all_playoffs.
+    Each series has a <tr> with text like:
+        "Eastern Conference First Round Boston Celtics over Orlando Magic (4-1) Series Stats"
+    We match that pattern with a regex to extract winner, loser, and win counts.
     """
+    import re
+
     url = f"{BASE_URL}/playoffs/NBA_{season}.html"
     soup = _get(url)
 
-    series_rows = []
-    # bball-ref playoff bracket page uses divs/tables — parse series results
-    # The bracket is in <div id="all_playoffs"> which may be comment-wrapped
-    bracket_div = soup.find("div", {"id": "all_playoffs"})
+    bracket_div = soup.find("div", {"id": "div_all_playoffs"})
     if bracket_div is None:
-        # Try unwrapping HTML comments
-        for comment in soup.find_all(string=lambda t: isinstance(t, str) and "playoffs" in t):
-            inner_soup = BeautifulSoup(str(comment), "lxml")
-            bracket_div = inner_soup.find("div", {"id": "all_playoffs"})
-            if bracket_div:
-                break
-
-    if bracket_div is None:
-        logger.warning("Could not find playoff bracket for season %d", season)
+        logger.warning("Could not find div#div_all_playoffs for season %d", season)
         return pd.DataFrame()
 
-    # Each series is represented as a table within the bracket
-    series_tables = bracket_div.find_all("table")
-    for tbl in series_tables:
-        rows = tbl.find_all("tr")
-        if len(rows) < 2:
-            continue
-        # Parse team names and win counts from table rows
-        teams, wins = [], []
-        for row in rows:
-            cells = row.find_all(["td", "th"])
-            if not cells:
-                continue
-            team_cell = cells[0].get_text(strip=True)
-            win_cell = cells[-1].get_text(strip=True) if len(cells) > 1 else ""
-            if team_cell and team_cell.isalpha() is False:
-                teams.append(team_cell)
-                try:
-                    wins.append(int(win_cell))
-                except ValueError:
-                    wins.append(0)
+    # Pattern: "{Round} {Winner} over {Loser} ({W}-{L}) Series Stats"
+    # Round always ends with one of: Finals, Semifinals, First Round
+    # Use that anchor so the round name is cleanly separated from the team name.
+    pattern = re.compile(
+        r"^(.*?(?:Finals|Semifinals|First Round))\s+(.+?)\s+over\s+(.+?)\s+\((\d)-(\d)\)",
+        re.IGNORECASE,
+    )
 
-        if len(teams) >= 2 and len(wins) >= 2:
-            # Higher wins = winner; use seed ordering from table position
-            w0, w1 = wins[0], wins[1]
-            total = w0 + w1
-            if total not in (4, 5, 6, 7, 8, 9, 10, 11):  # sanity check
-                continue
-            winner = teams[0] if w0 > w1 else teams[1]
-            series_rows.append(
-                {
-                    "season": season,
-                    "team_a": _safe_normalize(teams[0]),
-                    "team_b": _safe_normalize(teams[1]),
-                    "team_a_wins": w0,
-                    "team_b_wins": w1,
-                    "series_winner": _safe_normalize(winner),
-                    "series_length": total,
-                }
-            )
+    series_rows = []
+    for row in bracket_div.find_all("tr"):
+        text = row.get_text(" ", strip=True)
+        m = pattern.match(text)
+        if m is None:
+            continue
+        round_name = m.group(1).strip()
+        winner_name = m.group(2).strip()
+        loser_name = m.group(3).strip()
+        winner_wins = int(m.group(4))
+        loser_wins = int(m.group(5))
+        series_length = winner_wins + loser_wins
+        series_rows.append(
+            {
+                "season": season,
+                "round": round_name,
+                "team_a": _safe_normalize(winner_name),
+                "team_b": _safe_normalize(loser_name),
+                "team_a_wins": winner_wins,
+                "team_b_wins": loser_wins,
+                "series_winner": _safe_normalize(winner_name),
+                "series_length": series_length,
+            }
+        )
 
     df = pd.DataFrame(series_rows)
     logger.info("Fetched %d series for playoff season %d", len(df), season)
@@ -289,6 +306,7 @@ def fetch_all_playoff_series(start: int, end: int, out_dir: Path) -> None:
 # Team game logs (for momentum features)
 # =============================================================================
 
+
 def fetch_team_game_log(team_abbrev: str, season: int) -> pd.DataFrame:
     """Fetch all game log rows for a team in a given season."""
     url = f"{BASE_URL}/teams/{team_abbrev}/{season}_games.html"
@@ -304,6 +322,7 @@ def fetch_team_game_log(team_abbrev: str, season: int) -> pd.DataFrame:
 # =============================================================================
 # CLI entry point
 # =============================================================================
+
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Fetch Basketball Reference data")

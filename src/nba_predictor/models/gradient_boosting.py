@@ -16,14 +16,11 @@ import numpy as np
 import optuna
 import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.preprocessing import StandardScaler
 
-import mlflow
-
-from nba_predictor.config import cfg, get_git_hash
+from nba_predictor.config import cfg
 from nba_predictor.evaluation.cv_strategy import playoff_season_cv_splits
 from nba_predictor.evaluation.metrics import compute_winner_metrics
-from nba_predictor.tracking.mlflow_logger import setup_mlflow, log_training_run
+from nba_predictor.tracking.mlflow_logger import log_training_run, setup_mlflow
 
 logger = logging.getLogger(__name__)
 optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -47,8 +44,8 @@ def get_feature_cols(df: pd.DataFrame) -> list[str]:
 # XGBoost
 # =============================================================================
 
-def _xgb_objective(trial: optuna.Trial, series_df: pd.DataFrame,
-                   feature_cols: list[str]) -> float:
+
+def _xgb_objective(trial: optuna.Trial, series_df: pd.DataFrame, feature_cols: list[str]) -> float:
     """Optuna objective: minimize log_loss on walk-forward CV."""
     import xgboost as xgb
 
@@ -82,6 +79,7 @@ def _xgb_objective(trial: optuna.Trial, series_df: pd.DataFrame,
         y_prob = model.predict_proba(X_test)[:, 1]
 
         from sklearn.metrics import log_loss as sk_log_loss
+
         log_losses.append(sk_log_loss(y_test, y_prob))
 
     return float(np.mean(log_losses))
@@ -108,8 +106,8 @@ def tune_xgboost(series_df: pd.DataFrame, feature_cols: list[str]) -> dict:
 # LightGBM
 # =============================================================================
 
-def _lgbm_objective(trial: optuna.Trial, series_df: pd.DataFrame,
-                    feature_cols: list[str]) -> float:
+
+def _lgbm_objective(trial: optuna.Trial, series_df: pd.DataFrame, feature_cols: list[str]) -> float:
     """Optuna objective for LightGBM."""
     import lightgbm as lgb
 
@@ -141,6 +139,7 @@ def _lgbm_objective(trial: optuna.Trial, series_df: pd.DataFrame,
         y_prob = model.predict_proba(X_test)[:, 1]
 
         from sklearn.metrics import log_loss as sk_log_loss
+
         log_losses.append(sk_log_loss(y_test, y_prob))
 
     return float(np.mean(log_losses))
@@ -167,6 +166,7 @@ def tune_lightgbm(series_df: pd.DataFrame, feature_cols: list[str]) -> dict:
 # CV evaluation with best params
 # =============================================================================
 
+
 def run_cv_with_params(
     series_df: pd.DataFrame,
     feature_cols: list[str],
@@ -175,11 +175,15 @@ def run_cv_with_params(
 ) -> tuple[dict[str, list[float]], object]:
     """Run final walk-forward CV with best params. Returns metrics and final model."""
     metrics_history: dict[str, list[float]] = {
-        "accuracy": [], "log_loss": [], "brier_score": [], "upset_recall": [], "ece": [],
+        "accuracy": [],
+        "log_loss": [],
+        "brier_score": [],
+        "upset_recall": [],
+        "ece": [],
     }
 
     final_model = None
-    for fold_i, (train_idx, test_idx) in enumerate(playoff_season_cv_splits(series_df)):
+    for _fold_i, (train_idx, test_idx) in enumerate(playoff_season_cv_splits(series_df)):
         train = series_df.loc[train_idx]
         test = series_df.loc[test_idx]
 
@@ -190,10 +194,11 @@ def run_cv_with_params(
 
         if model_type == "xgboost":
             import xgboost as xgb
-            model = xgb.XGBClassifier(**best_params, use_label_encoder=False,
-                                       eval_metric="logloss")
+
+            model = xgb.XGBClassifier(**best_params, use_label_encoder=False, eval_metric="logloss")
         else:
             import lightgbm as lgb
+
             model = lgb.LGBMClassifier(**best_params, verbose=-1)
 
         calibrated = CalibratedClassifierCV(model, cv=5, method="isotonic")
@@ -228,11 +233,10 @@ def save_model(model: object, model_type: str) -> Path:
 # CLI
 # =============================================================================
 
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--model", choices=["xgboost", "lightgbm"], default="xgboost"
-    )
+    parser.add_argument("--model", choices=["xgboost", "lightgbm"], default="xgboost")
     parser.add_argument("--n-trials", type=int, default=None)
     return parser.parse_args()
 
@@ -252,7 +256,9 @@ def main() -> None:
 
     series_df = pd.read_parquet(series_path)
     feature_cols = get_feature_cols(series_df)
-    logger.info("Training %s: %d series, %d features", model_type, len(series_df), len(feature_cols))
+    logger.info(
+        "Training %s: %d series, %d features", model_type, len(series_df), len(feature_cols)
+    )
 
     # Hyperparameter tuning
     if model_type == "xgboost":
@@ -270,8 +276,10 @@ def main() -> None:
     logger.info(
         "%s CV: acc=%.3f±%.3f, logloss=%.3f±%.3f",
         model_type,
-        np.mean(cv_metrics["accuracy"]), np.std(cv_metrics["accuracy"]),
-        np.mean(cv_metrics["log_loss"]), np.std(cv_metrics["log_loss"]),
+        np.mean(cv_metrics["accuracy"]),
+        np.std(cv_metrics["accuracy"]),
+        np.mean(cv_metrics["log_loss"]),
+        np.std(cv_metrics["log_loss"]),
     )
 
     # Save model

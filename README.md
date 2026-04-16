@@ -8,18 +8,23 @@ A reproducible machine learning experiment for predicting NBA playoff series win
 
 | Model | Accuracy | Log-Loss | Brier Score | ECE |
 |-------|----------|----------|-------------|-----|
-| Naive (always higher seed) | ~71% | ~0.60 | ~0.21 | — |
-| Logistic Regression | TBD | TBD | TBD | TBD |
-| XGBoost (Optuna-tuned) | TBD | TBD | TBD | TBD |
-| LightGBM (Optuna-tuned) | TBD | TBD | TBD | TBD |
-| **Stacking Ensemble** | **TBD** | **TBD** | **TBD** | **TBD** |
+| Naive (always higher seed) | 75.4% | — | — | — |
+| **Stacking Ensemble** | **74.9% ± 13.4%** | **0.548 ± 0.180** | **0.179 ± 0.066** | **0.219 ± 0.059** |
 
-*Results populated after running `make train evaluate`.*
+*Walk-forward CV across 13 test seasons (2013–2025), 15 series per season. Accuracy matches the naive seed-based baseline because the NBA higher seed wins ~75% of the time — see notebook 08 for per-season breakdown and upset recall analysis.*
 
 ### 2026 Bracket Prediction
 
-> Run `make predict` to generate predictions for the current playoffs.
-> See `data/predictions/2026/bracket_output.csv` and `reports/bracket_2026.md`.
+**Predicted champion: OKC Thunder (11.9%)** — NBA Finals: OKC def. DET in 6.
+
+| Round | East | West |
+|-------|------|------|
+| R1 | DET def. PHI (in 4), BOS def. ORL (in 4), NYK def. ATL (in 5), CLE def. TOR (in 5) | OKC def. LAC (in 4), SAS def. POR (in 7), DEN def. MIN (in 6), HOU def. LAL (in 6) |
+| R2 | DET def. CLE (in 4), BOS def. NYK (in 6) | OKC def. HOU (in 5), SAS def. DEN (in 5) |
+| CF | **DET** def. BOS (in 5) | **OKC** def. SAS (in 7) |
+| Finals | **OKC** def. DET (in 6) | |
+
+> See `data/predictions/2026/bracket_output.csv` for per-series probabilities and series-length distributions.
 
 ---
 
@@ -72,7 +77,7 @@ nba-playoff-predictor/
 │   ├── raw/                      # Scraped data (gitignored — run make fetch)
 │   ├── processed/                # Feature parquets (gitignored — run make process)
 │   └── predictions/2026/         # 2026 bracket predictions (committed)
-├── notebooks/                    # EDA + modeling notebooks (outputs stripped)
+├── notebooks/                    # EDA + modeling notebooks (with outputs)
 │   ├── 00_data_audit.ipynb
 │   ├── 01_eda_team_stats.ipynb
 │   ├── ...

@@ -125,6 +125,11 @@ predict:
 test:
 	$(PYTEST) tests/ -v --tb=short
 
+.PHONY: diagnose-scraper
+diagnose-scraper:
+	@echo "==> Diagnosing scraper endpoints (1 season each, live network calls)..."
+	$(PYTHON) -m nba_predictor.data.diagnose_scraper
+
 .PHONY: test-coverage
 test-coverage:
 	$(PYTEST) tests/ --cov=nba_predictor --cov-report=html --cov-report=term-missing
@@ -189,6 +194,7 @@ help:
 	@echo "  make evaluate      Run backtesting + evaluation notebooks"
 	@echo "  make predict       Generate 2026 bracket predictions"
 	@echo "  make test          Run unit tests"
+	@echo "  make diagnose-scraper  Live endpoint validation (columns, row counts)"
 	@echo "  make smoke-test    Fetch 2 seasons + full pipeline test"
 	@echo "  make mlflow-ui     Launch MLflow UI at http://localhost:5000"
 	@echo "  make lint          Run ruff linting checks"

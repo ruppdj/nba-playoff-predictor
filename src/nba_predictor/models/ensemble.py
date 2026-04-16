@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 import pickle
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -20,10 +19,10 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 
-from nba_predictor.config import cfg, get_git_hash
+from nba_predictor.config import cfg
 from nba_predictor.evaluation.cv_strategy import playoff_season_cv_splits
 from nba_predictor.evaluation.metrics import compute_winner_metrics
-from nba_predictor.tracking.mlflow_logger import setup_mlflow, log_training_run
+from nba_predictor.tracking.mlflow_logger import log_training_run, setup_mlflow
 
 logger = logging.getLogger(__name__)
 
@@ -54,16 +53,22 @@ def _load_base_model(name: str) -> object | None:
 def generate_oof_predictions(
     series_df: pd.DataFrame,
     feature_cols: list[str],
+    min_train_seasons: int = 5,
 ) -> np.ndarray:
     """Generate out-of-fold predictions from all base models.
 
     Returns an (n_samples, 3) array of [lr_prob, xgb_prob, lgbm_prob]
     using walk-forward CV to avoid data leakage.
+
+    min_train_seasons is kept small (default 5) so this works when called
+    from inside an outer CV fold that already has a reduced season window.
     """
     n = len(series_df)
     oof_preds = np.full((n, 3), np.nan)
 
-    for train_idx, test_idx in playoff_season_cv_splits(series_df):
+    for train_idx, test_idx in playoff_season_cv_splits(
+        series_df, min_train_seasons=min_train_seasons
+    ):
         train = series_df.loc[train_idx]
         test = series_df.loc[test_idx]
 
@@ -86,6 +91,7 @@ def generate_oof_predictions(
         # 2. XGBoost (if available)
         try:
             import xgboost as xgb
+
             xgb_model = xgb.XGBClassifier(
                 random_state=RANDOM_STATE,
                 use_label_encoder=False,
@@ -105,6 +111,7 @@ def generate_oof_predictions(
         # 3. LightGBM (if available)
         try:
             import lightgbm as lgb
+
             lgbm_model = lgb.LGBMClassifier(
                 random_state=RANDOM_STATE,
                 n_estimators=300,
@@ -132,15 +139,13 @@ class StackingEnsemble:
     """
 
     def __init__(self) -> None:
-        self.meta_learner = LogisticRegression(
-            random_state=RANDOM_STATE, max_iter=1000, C=0.5
-        )
+        self.meta_learner = LogisticRegression(random_state=RANDOM_STATE, max_iter=1000, C=0.5)
         self.scaler_base = StandardScaler()  # for base models
         self.meta_calibrated: CalibratedClassifierCV | None = None
         self.feature_cols: list[str] = []
         self._base_models: dict = {}
 
-    def fit(self, series_df: pd.DataFrame) -> "StackingEnsemble":
+    def fit(self, series_df: pd.DataFrame) -> StackingEnsemble:
         self.feature_cols = get_feature_cols(series_df)
         X = series_df[self.feature_cols].fillna(0)
         y = series_df["higher_seed_wins"].values
@@ -155,10 +160,16 @@ class StackingEnsemble:
 
         try:
             import xgboost as xgb
+
             xgb_model = xgb.XGBClassifier(
-                random_state=RANDOM_STATE, use_label_encoder=False,
-                eval_metric="logloss", n_estimators=300, max_depth=4,
-                learning_rate=0.05, subsample=0.8, colsample_bytree=0.8,
+                random_state=RANDOM_STATE,
+                use_label_encoder=False,
+                eval_metric="logloss",
+                n_estimators=300,
+                max_depth=4,
+                learning_rate=0.05,
+                subsample=0.8,
+                colsample_bytree=0.8,
             )
             xgb_model.fit(X, y, verbose=False)
             self._base_models["xgb"] = ("raw", xgb_model)
@@ -167,9 +178,15 @@ class StackingEnsemble:
 
         try:
             import lightgbm as lgb
+
             lgbm_model = lgb.LGBMClassifier(
-                random_state=RANDOM_STATE, n_estimators=300, num_leaves=31,
-                learning_rate=0.05, subsample=0.8, colsample_bytree=0.8, verbose=-1,
+                random_state=RANDOM_STATE,
+                n_estimators=300,
+                num_leaves=31,
+                learning_rate=0.05,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                verbose=-1,
             )
             lgbm_model.fit(X, y)
             self._base_models["lgbm"] = ("raw", lgbm_model)
@@ -181,9 +198,7 @@ class StackingEnsemble:
         oof_preds = np.nan_to_num(oof_preds, nan=0.5)
 
         # Fit calibrated meta-learner
-        self.meta_calibrated = CalibratedClassifierCV(
-            self.meta_learner, cv=5, method="isotonic"
-        )
+        self.meta_calibrated = CalibratedClassifierCV(self.meta_learner, cv=3, method="isotonic")
         self.meta_calibrated.fit(oof_preds, y)
         logger.info("Stacking ensemble fitted.")
         return self
@@ -214,7 +229,11 @@ def run_ensemble_cv(series_df: pd.DataFrame) -> dict[str, list[float]]:
     """Evaluate the stacking ensemble with walk-forward CV."""
     feature_cols = get_feature_cols(series_df)
     metrics_history: dict[str, list[float]] = {
-        "accuracy": [], "log_loss": [], "brier_score": [], "upset_recall": [], "ece": [],
+        "accuracy": [],
+        "log_loss": [],
+        "brier_score": [],
+        "upset_recall": [],
+        "ece": [],
     }
 
     for fold_i, (train_idx, test_idx) in enumerate(playoff_season_cv_splits(series_df)):
@@ -236,7 +255,9 @@ def run_ensemble_cv(series_df: pd.DataFrame) -> dict[str, list[float]]:
 
         logger.info(
             "Ensemble fold %d: acc=%.3f, logloss=%.3f",
-            fold_i, fold_metrics["accuracy"], fold_metrics["log_loss"],
+            fold_i,
+            fold_metrics["accuracy"],
+            fold_metrics["log_loss"],
         )
 
     return metrics_history
@@ -256,8 +277,10 @@ def main() -> None:
     cv_metrics = run_ensemble_cv(series_df)
     logger.info(
         "Ensemble CV: acc=%.3f±%.3f, logloss=%.3f±%.3f",
-        np.mean(cv_metrics["accuracy"]), np.std(cv_metrics["accuracy"]),
-        np.mean(cv_metrics["log_loss"]), np.std(cv_metrics["log_loss"]),
+        np.mean(cv_metrics["accuracy"]),
+        np.std(cv_metrics["accuracy"]),
+        np.mean(cv_metrics["log_loss"]),
+        np.std(cv_metrics["log_loss"]),
     )
 
     # Train final ensemble on all data and save

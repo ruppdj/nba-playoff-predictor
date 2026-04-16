@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
-import pytest
-
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from nba_predictor.features.player_features import aggregate_player_to_team
@@ -44,8 +41,13 @@ def test_output_has_all_expected_columns(sample_player_advanced):
     """aggregate_player_to_team should return all key feature columns."""
     result = aggregate_player_to_team(sample_player_advanced)
     expected_cols = [
-        "team_VORP_sum", "team_BPM_weighted_avg", "team_WS48_weighted_avg",
-        "Top3_VORP_sum", "Star_player_BPM", "Has_AllNBA_player", "Top8_WS48_avg",
+        "team_VORP_sum",
+        "team_BPM_weighted_avg",
+        "team_WS48_weighted_avg",
+        "Top3_VORP_sum",
+        "Star_player_BPM",
+        "Has_AllNBA_player",
+        "Top8_WS48_avg",
     ]
     for col in expected_cols:
         assert col in result.columns, f"Missing column: {col}"

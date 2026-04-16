@@ -9,7 +9,6 @@ Thin wrapper around mlflow that:
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -60,13 +59,10 @@ def log_training_run(
         mlflow.set_tag("git_commit", get_git_hash())
         mlflow.set_tag("model_type", model.__class__.__name__)
         mlflow.set_tag("target", params.get("target", "series_winner"))
-        mlflow.set_tag(
-            "data_range",
-            f"{cfg.seasons['start']}-{cfg.seasons['end']}"
-        )
+        mlflow.set_tag("data_range", f"{cfg.seasons['start']}-{cfg.seasons['end']}")
 
         # Parameters
-        mlflow.log_params({k: v for k, v in params.items() if not isinstance(v, (list, dict))})
+        mlflow.log_params({k: v for k, v in params.items() if not isinstance(v, list | dict)})
         mlflow.log_param("n_features", len(feature_names))
 
         # CV metrics — mean/std and per-fold steps
@@ -91,6 +87,7 @@ def log_training_run(
             # Try generic pickle fallback
             import pickle
             import tempfile
+
             with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as tmp:
                 pickle.dump(model, tmp)
                 mlflow.log_artifact(tmp.name, "model")
@@ -113,9 +110,7 @@ def log_training_run(
                 logger.warning("Model registration failed: %s", exc)
 
         run_id = run.info.run_id
-        logger.info(
-            "MLflow run logged: %s (run_id=%s)", run_name, run_id
-        )
+        logger.info("MLflow run logged: %s (run_id=%s)", run_name, run_id)
         return run_id
 
 
@@ -135,8 +130,9 @@ def load_registered_model(model_name: str, stage: str = "Production") -> Any:
     return mlflow.sklearn.load_model(model_uri)
 
 
-def get_best_run(experiment_name: str, metric: str = "accuracy_mean",
-                 ascending: bool = False) -> dict[str, Any]:
+def get_best_run(
+    experiment_name: str, metric: str = "accuracy_mean", ascending: bool = False
+) -> dict[str, Any]:
     """Return the parameters and metrics of the best run in an experiment.
 
     Args:

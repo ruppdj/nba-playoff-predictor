@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-import numpy as np
-import pytest
-
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from nba_predictor.models.monte_carlo import (
-    simulate_series,
     home_win_probability,
-    away_win_probability,
+    simulate_series,
     simulate_series_from_features,
 )
 
@@ -28,8 +25,7 @@ def test_series_length_probabilities_sum_to_one():
     """Series length probabilities should sum to 1."""
     result = simulate_series(0.6, 0.4, n_simulations=10000, random_seed=42)
     length_sum = (
-        result["p_length_4"] + result["p_length_5"]
-        + result["p_length_6"] + result["p_length_7"]
+        result["p_length_4"] + result["p_length_5"] + result["p_length_6"] + result["p_length_7"]
     )
     assert abs(length_sum - 1.0) < 0.01, f"Length probs sum to {length_sum}"
 
@@ -37,17 +33,17 @@ def test_series_length_probabilities_sum_to_one():
 def test_dominant_team_wins_more():
     """A team with p=0.9 home, 0.7 away should win the series most of the time."""
     result = simulate_series(0.9, 0.7, n_simulations=10000, random_seed=42)
-    assert result["p_higher_seed_wins"] > 0.90, (
-        f"Dominant team should win >90% of series, got {result['p_higher_seed_wins']:.3f}"
-    )
+    assert (
+        result["p_higher_seed_wins"] > 0.90
+    ), f"Dominant team should win >90% of series, got {result['p_higher_seed_wins']:.3f}"
 
 
 def test_equal_teams_50pct():
     """Teams with p=0.5 everywhere should win ~50% of series."""
     result = simulate_series(0.5, 0.5, n_simulations=20000, random_seed=42)
-    assert 0.45 < result["p_higher_seed_wins"] < 0.55, (
-        f"Equal teams should win ~50%, got {result['p_higher_seed_wins']:.3f}"
-    )
+    assert (
+        0.45 < result["p_higher_seed_wins"] < 0.55
+    ), f"Equal teams should win ~50%, got {result['p_higher_seed_wins']:.3f}"
 
 
 def test_min_series_length_is_4():
@@ -93,18 +89,14 @@ def test_reproducibility():
 
 def test_simulate_from_features():
     """simulate_series_from_features with positive delta should favor higher seed."""
-    result = simulate_series_from_features(
-        {"delta_NRtg": 8.0}, n_simulations=5000, random_seed=42
-    )
-    assert result["p_higher_seed_wins"] > 0.6, (
-        "Positive NRtg delta should give >60% win probability"
-    )
+    result = simulate_series_from_features({"delta_NRtg": 8.0}, n_simulations=5000, random_seed=42)
+    assert (
+        result["p_higher_seed_wins"] > 0.6
+    ), "Positive NRtg delta should give >60% win probability"
 
 
 def test_simulate_from_features_neutral():
     """Zero delta should give ~50% win probability."""
-    result = simulate_series_from_features(
-        {"delta_NRtg": 0.0}, n_simulations=20000, random_seed=42
-    )
+    result = simulate_series_from_features({"delta_NRtg": 0.0}, n_simulations=20000, random_seed=42)
     # Home court advantage means higher seed should be slightly favored even at delta=0
     assert 0.5 < result["p_higher_seed_wins"] < 0.70

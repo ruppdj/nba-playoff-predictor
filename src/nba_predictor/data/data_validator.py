@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 import pandera as pa
-from pandera import Column, DataFrameSchema, Check
+from pandera import Check, Column, DataFrameSchema
 
 from nba_predictor.config import cfg
 
@@ -28,12 +28,12 @@ SERIES_DATASET_SCHEMA = DataFrameSchema(
         "team_a": Column(str, Check.str_length(2, 4)),
         "team_b": Column(str, Check.str_length(2, 4)),
         "series_winner": Column(str, Check.str_length(2, 4)),
-        "series_length": Column(int, Check.isin([4, 5, 6, 7])),
+        # Best-of-3 first round existed 1984–2002; best-of-7 from 2003 onward
+        "series_length": Column(int, Check.isin([3, 4, 5, 6, 7])),
         "higher_seed_wins": Column(int, Check.isin([0, 1])),
-        "NRtg_norm_a": Column(float, nullable=True),
-        "NRtg_norm_b": Column(float, nullable=True),
-        "VORP_sum_a": Column(float, nullable=True),
-        "VORP_sum_b": Column(float, nullable=True),
+        # Matchup dataset uses delta columns, not per-team _a/_b suffixes
+        "delta_NRtg": Column(float, nullable=True),
+        "delta_VORP": Column(float, nullable=True),
     },
     coerce=True,
     strict=False,  # allow extra columns not listed here
@@ -56,6 +56,7 @@ TEAM_FEATURES_SCHEMA = DataFrameSchema(
 # =============================================================================
 # Validation runner
 # =============================================================================
+
 
 def validate_file(schema: pa.DataFrameSchema, path: Path, label: str) -> bool:
     if not path.exists():

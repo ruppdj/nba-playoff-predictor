@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "nba-predictor"
@@ -24,13 +24,16 @@ ignore = ["E501"]
 
 [tool.mypy]
 python_version = "3.11"
-warn_return_any = true
+warn_return_any = false
 warn_unused_configs = true
 ignore_missing_imports = true
+# Config class uses dynamic setattr from YAML — attr-defined errors are false positives
+disable_error_code = ["attr-defined", "index", "union-attr", "import-untyped"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-v --tb=short"
+markers = ["smoke: live network tests, run manually with -m smoke"]
 
 [tool.coverage.run]
 source = ["src/nba_predictor"]

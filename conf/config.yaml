@@ -4,8 +4,9 @@
 
 # ── Season range ─────────────────────────────────────────────────────────────
 seasons:
-  start: 1984          # Modern 16-team bracket era begins
-  end: 2025            # Last completed season (2025-26 season is current)
+  start: 1984          # Modern 16-team bracket era begins — fetch range
+  model_start: 2003    # Training dataset start — 2003+ is all best-of-7; tune without re-fetching
+  end: 2026            # Last completed regular season
   current: 2026        # Current season for prediction target
   aberrant:            # Seasons with unusual circumstances — add season_flag feature
     - 2012             # Lockout — 66-game season
@@ -85,6 +86,7 @@ team_name_map:
   "Brooklyn Nets": "BRK"
   "Brooklyn": "BRK"
   "BRK": "BRK"
+  "BKN": "BRK"
   "NJN": "BRK"
   "New Jersey Nets": "BRK"
   "New Jersey": "BRK"
@@ -127,8 +129,9 @@ team_name_map:
   "Indiana Pacers": "IND"
   "Indiana": "IND"
   "IND": "IND"
-  # Los Angeles Clippers
+  # Los Angeles Clippers (formerly San Diego Clippers, relocated 1984)
   "Los Angeles Clippers": "LAC"
+  "San Diego Clippers": "LAC"
   "LA Clippers": "LAC"
   "LAC": "LAC"
   # Los Angeles Lakers
@@ -153,9 +156,10 @@ team_name_map:
   "Minnesota Timberwolves": "MIN"
   "Minnesota": "MIN"
   "MIN": "MIN"
-  # New Orleans Pelicans / Hornets
+  # New Orleans Pelicans / Hornets (incl. displaced 2005-07 Katrina era)
   "New Orleans Pelicans": "NOP"
   "New Orleans Hornets": "NOP"
+  "New Orleans/Oklahoma City Hornets": "NOP"
   "New Orleans": "NOP"
   "NOP": "NOP"
   "NOH": "NOP"
@@ -188,8 +192,9 @@ team_name_map:
   "Portland Trail Blazers": "POR"
   "Portland": "POR"
   "POR": "POR"
-  # Sacramento Kings
+  # Sacramento Kings (formerly Kansas City Kings, relocated 1985)
   "Sacramento Kings": "SAC"
+  "Kansas City Kings": "SAC"
   "Sacramento": "SAC"
   "SAC": "SAC"
   # San Antonio Spurs
@@ -296,6 +301,11 @@ features:
     - delta_DRtg
     - delta_Pace
     - delta_Experience
+    - delta_Prior_playoff_win_pct
+    - delta_Prior_deepest_round
+    - delta_Recent_appearances
+    - higher_seed_Prior_champion_3yr
+    - lower_seed_Prior_champion_3yr
     - delta_L10_NRtg
     - delta_Star_BPM
     - seed_diff

@@ -20,7 +20,6 @@ from pathlib import Path
 import pandas as pd
 
 from nba_predictor.config import cfg
-from nba_predictor.features.era_normalizer import normalize_team_stats
 from nba_predictor.features.injury_features import compute_injury_features
 from nba_predictor.features.matchup_features import build_matchup_dataset
 from nba_predictor.features.player_features import (
@@ -98,20 +97,24 @@ def run_pipeline() -> pd.DataFrame:
     )
 
     if team_adv_bref.empty:
-        raise RuntimeError(
-            "No team stats found. Run 'make fetch' first to download raw data."
+        raise RuntimeError("No team stats found. Run 'make fetch' first to download raw data.")
+
+    # Re-normalize Team_abbrev from the Team column in case team_name_map was
+    # updated after the raw parquet was written (avoids needing to re-fetch)
+    if "Team" in team_adv_bref.columns:
+        team_adv_bref["Team_abbrev"] = (
+            team_adv_bref["Team"]
+            .str.replace(r"\*", "", regex=True)
+            .str.strip()
+            .map(_safe_normalize)
         )
 
     if playoff_series.empty:
-        raise RuntimeError(
-            "No playoff series data found. Run 'make fetch' first."
-        )
+        raise RuntimeError("No playoff series data found. Run 'make fetch' first.")
 
     # ── Step 1: Team season features ──────────────────────────────────────
     logger.info("Step 1: Building team season features...")
-    team_features = build_team_season_features(
-        team_adv_bref, team_game_logs, playoff_series
-    )
+    team_features = build_team_season_features(team_adv_bref, team_game_logs, playoff_series)
     team_out = processed_dir / "team_season_features.parquet"
     team_features.to_parquet(team_out, index=False)
     logger.info("Saved team features: %s", team_out)
@@ -120,27 +123,40 @@ def run_pipeline() -> pd.DataFrame:
     logger.info("Step 2: Building player season features...")
     # Merge per-game and advanced stats
     if not player_adv_bref.empty and not player_pg_bref.empty:
+        # G and MP already exist in player_adv_bref — exclude from pg to avoid _x/_y suffixes
         player_combined = player_adv_bref.merge(
             player_pg_bref[
-                [c for c in ["season", "Player", "Tm", "G", "GS", "MP",
-                             "PTS", "TRB", "AST", "STL", "BLK", "TOV"] if c in player_pg_bref.columns]
+                [
+                    c
+                    for c in [
+                        "season",
+                        "Player",
+                        "Team",
+                        "GS",
+                        "PTS",
+                        "TRB",
+                        "AST",
+                        "STL",
+                        "BLK",
+                        "TOV",
+                    ]
+                    if c in player_pg_bref.columns
+                ]
             ],
-            on=["season", "Player", "Tm"],
+            on=["season", "Player", "Team"],
             how="left",
         )
     else:
         player_combined = player_adv_bref if not player_adv_bref.empty else player_pg_bref
 
     # Ensure Team_abbrev is consistent
-    if "Tm" in player_combined.columns and "Team_abbrev" not in player_combined.columns:
-        player_combined["Team_abbrev"] = player_combined["Tm"].map(
+    if "Team" in player_combined.columns and "Team_abbrev" not in player_combined.columns:
+        player_combined["Team_abbrev"] = player_combined["Team"].map(
             lambda t: _safe_normalize(str(t))
         )
 
     player_team_features = aggregate_player_to_team(player_combined)
-    player_momentum = compute_player_momentum(
-        player_game_logs, player_combined
-    )
+    player_momentum = compute_player_momentum(player_game_logs, player_combined)
 
     # Merge momentum into player team features
     if not player_momentum.empty:
@@ -163,14 +179,18 @@ def run_pipeline() -> pd.DataFrame:
             roster_df["PLAYER_NAME"] = roster_df["PLAYER"]
     else:
         # Reconstruct minimal roster from player advanced
-        roster_df = player_combined[
-            [c for c in ["season", "Team_abbrev", "Player"] if c in player_combined.columns]
-        ].rename(columns={"Player": "PLAYER_NAME"}).drop_duplicates()
+        roster_df = (
+            player_combined[
+                [c for c in ["season", "Team_abbrev", "Player"] if c in player_combined.columns]
+            ]
+            .rename(columns={"Player": "PLAYER_NAME"})
+            .drop_duplicates()
+        )
 
     # No structured injury report — will fall back to GP-based estimates for pre-2010
     injury_features = compute_injury_features(
         roster_df=roster_df,
-        injury_report=None,   # TODO: load from data/raw/nba_api/injury_reports/ when available
+        injury_report=None,  # TODO: load from data/raw/nba_api/injury_reports/ when available
         player_advanced=player_combined,
     )
 
@@ -188,11 +208,24 @@ def run_pipeline() -> pd.DataFrame:
         game_logs=team_game_logs if not team_game_logs.empty else None,
     )
 
+    # Filter to modeling range — feature lookbacks are computed from full history above
+    model_start = cfg.seasons.get("model_start", cfg.seasons["start"])
+    pre_filter_len = len(series_dataset)
+    series_dataset = series_dataset[series_dataset["season"] >= model_start].copy()
+    logger.info(
+        "Applied model_start filter (>= %d): %d → %d series",
+        model_start,
+        pre_filter_len,
+        len(series_dataset),
+    )
+
     series_out = processed_dir / "series_dataset.parquet"
     series_dataset.to_parquet(series_out, index=False)
     logger.info(
         "Saved series dataset: %d rows, %d columns — %s",
-        len(series_dataset), len(series_dataset.columns), series_out,
+        len(series_dataset),
+        len(series_dataset.columns),
+        series_out,
     )
 
     # ── Step 5: Write checksums ────────────────────────────────────────────

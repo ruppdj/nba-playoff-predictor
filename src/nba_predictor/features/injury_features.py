@@ -80,7 +80,7 @@ def compute_injury_features(
     """
     rows = []
 
-    for (season, team), players in roster_df.groupby(["season", "Team_abbrev"]):
+    for (season, team), _players in roster_df.groupby(["season", "Team_abbrev"]):
         has_injury_data = injury_report is not None and not injury_report.empty
 
         # Get player-level stats for this team
@@ -121,13 +121,14 @@ def compute_injury_features(
         pa["availability"] = pa["Player"].map(availabilities).fillna(_AW["available"])
 
         # ── Basic availability features ──────────────────────────────────────
-        vorp_avail = pa.get("VORP", pd.Series(dtype=float))
         adj_vorp_sum = (pa["VORP"] * pa["availability"]).sum() if "VORP" in pa.columns else np.nan
 
         # Sort by VORP for star identification
         pa_sorted_vorp = pa.sort_values("VORP", ascending=False)
         star_avail = pa_sorted_vorp.iloc[0]["availability"] if len(pa_sorted_vorp) > 0 else 1.0
-        second_star_avail = pa_sorted_vorp.iloc[1]["availability"] if len(pa_sorted_vorp) > 1 else 1.0
+        second_star_avail = (
+            pa_sorted_vorp.iloc[1]["availability"] if len(pa_sorted_vorp) > 1 else 1.0
+        )
 
         star_injured = int(star_avail < INJURED_THRESHOLD)
         second_star_injured = int(second_star_avail < INJURED_THRESHOLD)
@@ -138,9 +139,7 @@ def compute_injury_features(
         if "PTS" in pa.columns:
             pa_pts = pa.sort_values("PTS", ascending=False)
             top1_scorer_avail = pa_pts.iloc[0]["availability"] if len(pa_pts) > 0 else 1.0
-            top2_scorer_avail = (
-                pa_pts.iloc[1]["availability"] if len(pa_pts) > 1 else 1.0
-            )
+            top2_scorer_avail = pa_pts.iloc[1]["availability"] if len(pa_pts) > 1 else 1.0
             top2_scorer_avg_avail = np.mean([top1_scorer_avail, top2_scorer_avail])
             lost_top_scorer = int(top1_scorer_avail < INJURED_THRESHOLD)
             lost_top2_scorers = int(
@@ -148,7 +147,9 @@ def compute_injury_features(
             )
             # Scoring VORP available pct
             scoring_vorp_total = pa["VORP"].sum() if "VORP" in pa.columns else np.nan
-            scoring_vorp_avail = (pa["VORP"] * pa["availability"]).sum() if "VORP" in pa.columns else np.nan
+            scoring_vorp_avail = (
+                (pa["VORP"] * pa["availability"]).sum() if "VORP" in pa.columns else np.nan
+            )
             scoring_vorp_pct = (
                 scoring_vorp_avail / scoring_vorp_total
                 if scoring_vorp_total and scoring_vorp_total > 0
@@ -202,9 +203,7 @@ def compute_injury_features(
         if "VORP" in pa.columns:
             vorp_total = pa["VORP"].sum()
             roster_vorp_avail_pct = (
-                (pa["VORP"] * pa["availability"]).sum() / vorp_total
-                if vorp_total > 0
-                else np.nan
+                (pa["VORP"] * pa["availability"]).sum() / vorp_total if vorp_total > 0 else np.nan
             )
         else:
             roster_vorp_avail_pct = np.nan

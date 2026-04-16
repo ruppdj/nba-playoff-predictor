@@ -17,13 +17,12 @@ import pickle
 
 import numpy as np
 import pandas as pd
-from sklearn.calibration import CalibratedClassifierCV
 from sklearn.preprocessing import StandardScaler
 
 from nba_predictor.config import cfg
 from nba_predictor.evaluation.cv_strategy import playoff_season_cv_splits
 from nba_predictor.evaluation.metrics import compute_length_metrics
-from nba_predictor.tracking.mlflow_logger import setup_mlflow, log_training_run
+from nba_predictor.tracking.mlflow_logger import log_training_run, setup_mlflow
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +47,10 @@ def run_lgbm_cv(series_df: pd.DataFrame, feature_cols: list[str]) -> dict[str, l
     import lightgbm as lgb
 
     metrics_history: dict[str, list[float]] = {
-        "exact_accuracy": [], "within1_accuracy": [], "mae": [], "log_loss": [],
+        "exact_accuracy": [],
+        "within1_accuracy": [],
+        "mae": [],
+        "log_loss": [],
     }
 
     for fold_i, (train_idx, test_idx) in enumerate(playoff_season_cv_splits(series_df)):
@@ -63,7 +65,9 @@ def run_lgbm_cv(series_df: pd.DataFrame, feature_cols: list[str]) -> dict[str, l
         # Compute class weights (sweeps = 4 games are rare)
         class_counts = pd.Series(y_train).value_counts()
         total = len(y_train)
-        class_weight = {c: total / (len(LENGTH_CLASSES) * class_counts.get(c, 1)) for c in LENGTH_CLASSES}
+        class_weight = {
+            c: total / (len(LENGTH_CLASSES) * class_counts.get(c, 1)) for c in LENGTH_CLASSES
+        }
 
         model = lgb.LGBMClassifier(
             objective="multiclass",
@@ -87,7 +91,9 @@ def run_lgbm_cv(series_df: pd.DataFrame, feature_cols: list[str]) -> dict[str, l
 
         logger.info(
             "Length fold %d: exact_acc=%.3f, within1=%.3f",
-            fold_i, fold_metrics["exact_accuracy"], fold_metrics["within1_accuracy"],
+            fold_i,
+            fold_metrics["exact_accuracy"],
+            fold_metrics["within1_accuracy"],
         )
 
     return metrics_history
@@ -102,7 +108,9 @@ def run_ordinal_cv(series_df: pd.DataFrame, feature_cols: list[str]) -> dict[str
         return {}
 
     metrics_history: dict[str, list[float]] = {
-        "exact_accuracy": [], "within1_accuracy": [], "mae": [],
+        "exact_accuracy": [],
+        "within1_accuracy": [],
+        "mae": [],
     }
 
     scaler = StandardScaler()
@@ -111,7 +119,7 @@ def run_ordinal_cv(series_df: pd.DataFrame, feature_cols: list[str]) -> dict[str
     label_map = {4: 0, 5: 1, 6: 2, 7: 3}
     inv_map = {0: 4, 1: 5, 2: 6, 3: 7}
 
-    for fold_i, (train_idx, test_idx) in enumerate(playoff_season_cv_splits(series_df)):
+    for _fold_i, (train_idx, test_idx) in enumerate(playoff_season_cv_splits(series_df)):
         train = series_df.loc[train_idx]
         test = series_df.loc[test_idx]
 
@@ -172,17 +180,17 @@ def main() -> None:
     # Filter to series with valid length labels
     series_df = series_df[series_df["series_length"].isin(LENGTH_CLASSES)].copy()
     feature_cols = get_feature_cols(series_df)
-    logger.info(
-        "Series length training: %d series, %d features", len(series_df), len(feature_cols)
-    )
+    logger.info("Series length training: %d series, %d features", len(series_df), len(feature_cols))
 
     # LGBM CV
     logger.info("Running LightGBM series length CV...")
     lgbm_metrics = run_lgbm_cv(series_df, feature_cols)
     logger.info(
         "LGBM length: exact_acc=%.3f±%.3f, within1=%.3f±%.3f",
-        np.mean(lgbm_metrics["exact_accuracy"]), np.std(lgbm_metrics["exact_accuracy"]),
-        np.mean(lgbm_metrics["within1_accuracy"]), np.std(lgbm_metrics["within1_accuracy"]),
+        np.mean(lgbm_metrics["exact_accuracy"]),
+        np.std(lgbm_metrics["exact_accuracy"]),
+        np.mean(lgbm_metrics["within1_accuracy"]),
+        np.std(lgbm_metrics["within1_accuracy"]),
     )
 
     # Ordinal CV
@@ -191,8 +199,10 @@ def main() -> None:
     if ord_metrics:
         logger.info(
             "Ordinal length: exact_acc=%.3f±%.3f, within1=%.3f±%.3f",
-            np.mean(ord_metrics["exact_accuracy"]), np.std(ord_metrics["exact_accuracy"]),
-            np.mean(ord_metrics["within1_accuracy"]), np.std(ord_metrics["within1_accuracy"]),
+            np.mean(ord_metrics["exact_accuracy"]),
+            np.std(ord_metrics["exact_accuracy"]),
+            np.mean(ord_metrics["within1_accuracy"]),
+            np.std(ord_metrics["within1_accuracy"]),
         )
 
     # Train and save final model

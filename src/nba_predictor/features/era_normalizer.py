@@ -13,7 +13,7 @@ conflates era effects with team quality.
 from __future__ import annotations
 
 import logging
-from typing import Sequence
+from collections.abc import Sequence
 
 import pandas as pd
 
@@ -41,10 +41,7 @@ NORMALIZE_COLS = [
 
 def add_era_flags(df: pd.DataFrame) -> pd.DataFrame:
     """Add one-hot era columns based on season year."""
-    era_map = {
-        era_key: (cfg["start"], cfg["end"])
-        for era_key, cfg in cfg.eras.items()
-    }
+    era_map = {era_key: (cfg["start"], cfg["end"]) for era_key, cfg in cfg.eras.items()}
 
     for era_key, (start, end) in era_map.items():
         col = f"era_{era_key}"
@@ -88,13 +85,16 @@ def z_score_per_season(
 
     for col in available_cols:
         norm_col = f"{col}{suffix}"
+        # Coerce to numeric — bball-ref scraper returns some columns as object dtype
+        df[col] = pd.to_numeric(df[col], errors="coerce")
         season_means = df.groupby(season_col)[col].transform("mean")
         season_stds = df.groupby(season_col)[col].transform("std")
         # Avoid division by zero in seasons with only 1 team entry
         df[norm_col] = (df[col] - season_means) / season_stds.replace(0.0, 1.0)
 
-    logger.debug("Normalized %d columns across %d seasons", len(available_cols),
-                 df[season_col].nunique())
+    logger.debug(
+        "Normalized %d columns across %d seasons", len(available_cols), df[season_col].nunique()
+    )
     return df
 
 

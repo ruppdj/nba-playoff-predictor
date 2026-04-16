@@ -9,22 +9,21 @@ Key assertions:
 
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
-import pytest
-
 import sys
 from pathlib import Path
+
+import pandas as pd
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from nba_predictor.features.injury_features import (
-    status_to_availability,
     availability_from_gp_ratio,
     compute_injury_features,
+    status_to_availability,
 )
 
-
 # ── Status mapping tests ──────────────────────────────────────────────────────
+
 
 def test_status_out():
     assert status_to_availability("out") == 0.0
@@ -62,12 +61,15 @@ def test_gp_ratio_clamped():
 
 # ── compute_injury_features tests ────────────────────────────────────────────
 
+
 def _make_roster(season: int, team: str, players: list[str]) -> pd.DataFrame:
-    return pd.DataFrame({
-        "season": [season] * len(players),
-        "Team_abbrev": [team] * len(players),
-        "PLAYER_NAME": players,
-    })
+    return pd.DataFrame(
+        {
+            "season": [season] * len(players),
+            "Team_abbrev": [team] * len(players),
+            "PLAYER_NAME": players,
+        }
+    )
 
 
 def _make_player_advanced(
@@ -82,21 +84,23 @@ def _make_player_advanced(
     gp: list[int],
     mp: list[float],
 ) -> pd.DataFrame:
-    return pd.DataFrame({
-        "season": [season] * len(players),
-        "Team_abbrev": [team] * len(players),
-        "Player": players,
-        "Tm": [team] * len(players),
-        "VORP": vorp,
-        "BPM": [v / 2 for v in vorp],
-        "PTS": pts,
-        "TRB": trb,
-        "AST": ast,
-        "DBPM": dbpm,
-        "G": gp,
-        "MP": mp,
-        "DRB": [r * 0.7 for r in trb],
-    })
+    return pd.DataFrame(
+        {
+            "season": [season] * len(players),
+            "Team_abbrev": [team] * len(players),
+            "Player": players,
+            "Tm": [team] * len(players),
+            "VORP": vorp,
+            "BPM": [v / 2 for v in vorp],
+            "PTS": pts,
+            "TRB": trb,
+            "AST": ast,
+            "DBPM": dbpm,
+            "G": gp,
+            "MP": mp,
+            "DRB": [r * 0.7 for r in trb],
+        }
+    )
 
 
 def test_fully_healthy_roster_pct():
@@ -105,7 +109,9 @@ def test_fully_healthy_roster_pct():
     players = ["Player A", "Player B", "Player C"]
     roster = _make_roster(season, team, players)
     pa = _make_player_advanced(
-        season, team, players,
+        season,
+        team,
+        players,
         vorp=[5.0, 3.0, 1.0],
         pts=[25.0, 18.0, 10.0],
         trb=[5.0, 8.0, 3.0],
@@ -116,9 +122,9 @@ def test_fully_healthy_roster_pct():
     )
     result = compute_injury_features(roster, None, pa)
     row = result[result["Team_abbrev"] == team].iloc[0]
-    assert abs(row["Roster_VORP_available_pct"] - 1.0) < 1e-6, (
-        f"Healthy roster should have pct=1.0, got {row['Roster_VORP_available_pct']}"
-    )
+    assert (
+        abs(row["Roster_VORP_available_pct"] - 1.0) < 1e-6
+    ), f"Healthy roster should have pct=1.0, got {row['Roster_VORP_available_pct']}"
     assert row["Star_injured"] == 0
     assert row["Lost_top_scorer"] == 0
     assert row["Lost_top_rebounder"] == 0
@@ -131,13 +137,15 @@ def test_star_player_out():
     players = ["Star Player", "Role Player"]
     roster = _make_roster(season, team, players)
     pa = _make_player_advanced(
-        season, team, players,
+        season,
+        team,
+        players,
         vorp=[8.0, 2.0],
         pts=[30.0, 15.0],
         trb=[5.0, 6.0],
         ast=[7.0, 2.0],
         dbpm=[2.0, 0.0],
-        gp=[0, 82],   # star played 0 games → availability ≈ 0
+        gp=[0, 82],  # star played 0 games → availability ≈ 0
         mp=[36.0, 28.0],
     )
     result = compute_injury_features(roster, None, pa)
@@ -152,7 +160,9 @@ def test_adj_vorp_sum_less_than_full():
     players = ["P1", "P2", "P3"]
     roster = _make_roster(season, team, players)
     pa = _make_player_advanced(
-        season, team, players,
+        season,
+        team,
+        players,
         vorp=[4.0, 3.0, 2.0],
         pts=[20.0, 16.0, 12.0],
         trb=[5.0, 7.0, 4.0],
@@ -164,9 +174,9 @@ def test_adj_vorp_sum_less_than_full():
     result = compute_injury_features(roster, None, pa)
     row = result[result["Team_abbrev"] == team].iloc[0]
     raw_vorp = 4.0 + 3.0 + 2.0
-    assert row["adj_VORP_sum"] < raw_vorp, (
-        "adj_VORP_sum should be less than raw sum when a player is injured"
-    )
+    assert (
+        row["adj_VORP_sum"] < raw_vorp
+    ), "adj_VORP_sum should be less than raw sum when a player is injured"
 
 
 def test_lost_top_rebounder():
@@ -175,13 +185,15 @@ def test_lost_top_rebounder():
     players = ["Big Man", "Guard"]
     roster = _make_roster(season, team, players)
     pa = _make_player_advanced(
-        season, team, players,
-        vorp=[2.0, 5.0],   # Guard is the star by VORP
+        season,
+        team,
+        players,
+        vorp=[2.0, 5.0],  # Guard is the star by VORP
         pts=[12.0, 25.0],
-        trb=[14.0, 3.0],   # Big Man is top rebounder
+        trb=[14.0, 3.0],  # Big Man is top rebounder
         ast=[1.0, 8.0],
         dbpm=[1.0, 0.5],
-        gp=[0, 82],         # Big Man is out
+        gp=[0, 82],  # Big Man is out
         mp=[28.0, 36.0],
     )
     result = compute_injury_features(roster, None, pa)
@@ -195,9 +207,16 @@ def test_has_injury_data_flag_with_no_report():
     players = ["Giannis"]
     roster = _make_roster(season, team, players)
     pa = _make_player_advanced(
-        season, team, players,
-        vorp=[9.0], pts=[27.0], trb=[13.0], ast=[6.0],
-        dbpm=[3.0], gp=[72], mp=[32.0],
+        season,
+        team,
+        players,
+        vorp=[9.0],
+        pts=[27.0],
+        trb=[13.0],
+        ast=[6.0],
+        dbpm=[3.0],
+        gp=[72],
+        mp=[32.0],
     )
     result = compute_injury_features(roster, None, pa)
     row = result[result["Team_abbrev"] == team].iloc[0]

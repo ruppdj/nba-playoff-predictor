@@ -50,21 +50,31 @@ def build_matchup_dataset(
         winner = str(series["series_winner"])
         length = int(series["series_length"])
 
-        # Identify higher and lower seed (use team_a as default higher seed)
-        # Seeding info may or may not be present in playoff_series
-        seed_a = float(series.get("seed_a", 1))
-        seed_b = float(series.get("seed_b", 8))
-        higher_seed = team_a if seed_a <= seed_b else team_b
-        lower_seed = team_b if seed_a <= seed_b else team_a
-        seed_diff = abs(seed_b - seed_a)
-
-        # Fetch team features for each side
+        # Fetch team features for each side (needed for Win_pct seeding proxy below)
         feat_a = _get_team_row(team_features, season, team_a)
         feat_b = _get_team_row(team_features, season, team_b)
-        pfeat_a = _get_team_row(player_features, season, team_a)
-        pfeat_b = _get_team_row(player_features, season, team_b)
-        ifeat_a = _get_team_row(injury_features, season, team_a)
-        ifeat_b = _get_team_row(injury_features, season, team_b)
+
+        # Identify higher and lower seed
+        # Use actual seed columns when present; otherwise proxy with regular-season Win_pct.
+        # (NBA seeding is determined by regular-season record within conference.)
+        # Note: the scraper always puts the winner in team_a, so we must NOT default
+        # to team_a = higher seed or higher_seed_wins would be 1 in every row.
+        if pd.notna(series.get("seed_a")) and pd.notna(series.get("seed_b")):
+            seed_a = float(series["seed_a"])
+            seed_b = float(series["seed_b"])
+            higher_seed = team_a if seed_a <= seed_b else team_b
+            lower_seed = team_b if seed_a <= seed_b else team_a
+            seed_diff = float(abs(seed_b - seed_a))
+        else:
+            win_pct_a = _scalar(feat_a, "Win_pct")
+            win_pct_b = _scalar(feat_b, "Win_pct")
+            if not np.isnan(win_pct_a) and not np.isnan(win_pct_b):
+                higher_seed = team_a if win_pct_a >= win_pct_b else team_b
+                lower_seed = team_b if win_pct_a >= win_pct_b else team_a
+            else:
+                higher_seed = team_a
+                lower_seed = team_b
+            seed_diff = np.nan
 
         row: dict = {
             "season": season,
@@ -105,6 +115,9 @@ def build_matchup_dataset(
             ("Pace_norm", "delta_Pace"),
             ("Win_pct", "delta_Win_pct"),
             ("Playoff_experience_years", "delta_Experience"),
+            ("Prior_playoff_win_pct", "delta_Prior_playoff_win_pct"),
+            ("Prior_deepest_round", "delta_Prior_deepest_round"),
+            ("Prior_playoff_appearances_2yr", "delta_Recent_appearances"),
             ("L10_NRtg", "delta_L10_NRtg"),
             ("L10_NRtg_delta", "delta_L10_NRtg_trend"),
             ("current_win_streak", "delta_streak"),
@@ -134,11 +147,20 @@ def build_matchup_dataset(
             l_val = _scalar(ifeat_lower, src)
             row[dst] = h_val - l_val if not np.isnan(h_val) and not np.isnan(l_val) else np.nan
 
+        # ── Absolute playoff history flags for higher/lower seed ─────────────
+        for col in ["Prior_champion_3yr"]:
+            row[f"higher_seed_{col}"] = _scalar(feat_higher, col)
+            row[f"lower_seed_{col}"] = _scalar(feat_lower, col)
+
         # ── Include absolute injury flags for higher/lower seed ───────────────
         for col in [
-            "Star_injured", "Second_star_injured",
-            "Lost_top_scorer", "Lost_top_rebounder", "Lost_top_playmaker",
-            "Roster_VORP_available_pct", "Injured_player_count",
+            "Star_injured",
+            "Second_star_injured",
+            "Lost_top_scorer",
+            "Lost_top_rebounder",
+            "Lost_top_playmaker",
+            "Roster_VORP_available_pct",
+            "Injured_player_count",
             "has_injury_data",
         ]:
             row[f"higher_{col}"] = _scalar(ifeat_higher, col)
@@ -161,9 +183,7 @@ def build_matchup_dataset(
         rows.append(row)
 
     df = pd.DataFrame(rows)
-    logger.info(
-        "Matchup dataset built: %d series, %d features", len(df), len(df.columns)
-    )
+    logger.info("Matchup dataset built: %d series, %d features", len(df), len(df.columns))
     return df
 
 
@@ -191,9 +211,7 @@ def _get_era(season: int) -> str:
     return cfg.get_era(season)
 
 
-def _compute_h2h(
-    game_logs: pd.DataFrame, season: int, higher_seed: str, lower_seed: str
-) -> dict:
+def _compute_h2h(game_logs: pd.DataFrame, season: int, higher_seed: str, lower_seed: str) -> dict:
     """Compute head-to-head regular season stats between two teams in a season."""
     logs = game_logs[game_logs["season"] == season].copy()
     if logs.empty or "Team_abbrev" not in logs.columns:

@@ -44,6 +44,12 @@ venv/
 kaggle.json
 secrets/
 
+# ── Pipeline logs ────────────────────────────────────────────────────────────
+logs/
+
+# ── Generated figures (reproducible via make eda / make evaluate) ─────────────
+reports/figures/
+
 # ── OS ───────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db

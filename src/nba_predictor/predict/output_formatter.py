@@ -15,10 +15,10 @@ from nba_predictor.config import cfg
 
 logger = logging.getLogger(__name__)
 
-ROUND_ORDER = ["first_round", "conf_semis", "conf_finals", "nba_finals"]
+ROUND_ORDER = ["first_round", "second_round", "conf_finals", "nba_finals"]
 ROUND_LABELS = {
     "first_round": "First Round",
-    "conf_semis": "Conference Semifinals",
+    "second_round": "Conference Semifinals",
     "conf_finals": "Conference Finals",
     "nba_finals": "NBA Finals",
 }
@@ -43,24 +43,25 @@ def format_bracket_markdown(season: int) -> str:
         for round_key in ROUND_ORDER[:-1]:
             round_label = ROUND_LABELS[round_key]
             subset = series_df[
-                (series_df["conference"] == conf)
-                & (series_df["round"] == round_key)
+                (series_df["conference"] == conf) & (series_df["round"] == round_key)
             ]
             if subset.empty:
                 continue
             lines.append(f"\n### {round_label}")
             for _, row in subset.iterrows():
                 winner = row["predicted_winner"]
-                loser = (
-                    row["lower_seed"]
+                loser = row["lower_seed"] if winner == row["higher_seed"] else row["higher_seed"]
+                p_win = (
+                    row["p_higher_seed_wins"]
                     if winner == row["higher_seed"]
-                    else row["higher_seed"]
+                    else 1 - row["p_higher_seed_wins"]
                 )
-                p_win = row["p_higher_seed_wins"] if winner == row["higher_seed"] else row["p_lower_seed_wins"]
-                lines.append(
-                    f"- **{winner}** def. {loser} "
-                    f"(P={p_win:.1%}, exp. {row['expected_length']:.1f} games)"
+                length_str = (
+                    f"in {int(row['modal_length'])}"
+                    if "modal_length" in row.index and pd.notna(row["modal_length"])
+                    else f"~{row['expected_length']:.1f}g"
                 )
+                lines.append(f"- **{winner}** def. {loser} " f"(P={p_win:.1%}, {length_str})")
 
     # NBA Finals
     finals = series_df[series_df["round"] == "nba_finals"]
@@ -69,19 +70,26 @@ def format_bracket_markdown(season: int) -> str:
         row = finals.iloc[0]
         winner = row["predicted_winner"]
         loser = row["lower_seed"] if winner == row["higher_seed"] else row["higher_seed"]
-        p_win = row["p_higher_seed_wins"] if winner == row["higher_seed"] else row["p_lower_seed_wins"]
-        lines.append(
-            f"**🏆 {winner}** def. {loser} "
-            f"(P={p_win:.1%}, exp. {row['expected_length']:.1f} games)"
+        p_win = (
+            row["p_higher_seed_wins"]
+            if winner == row["higher_seed"]
+            else 1 - row["p_higher_seed_wins"]
         )
+        length_str = (
+            f"in {int(row['modal_length'])}"
+            if "modal_length" in row.index and pd.notna(row["modal_length"])
+            else f"~{row['expected_length']:.1f}g"
+        )
+        lines.append(f"**🏆 {winner}** def. {loser} " f"(P={p_win:.1%}, {length_str})")
 
     # Champion probabilities
     if not champ_df.empty:
         lines.append("\n## Championship Probabilities (Monte Carlo)")
         lines.append("| Team | Probability |")
         lines.append("|------|-------------|")
+        champ_col = "p_champion" if "p_champion" in champ_df.columns else "champion_probability"
         for _, row in champ_df.head(16).iterrows():
-            lines.append(f"| {row['team']} | {row['champion_probability']:.1%} |")
+            lines.append(f"| {row['team']} | {row[champ_col]:.1%} |")
 
     return "\n".join(lines)
 

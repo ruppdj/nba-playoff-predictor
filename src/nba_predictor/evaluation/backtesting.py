@@ -9,13 +9,10 @@ Run via: python -m nba_predictor.evaluation.backtesting
 
 from __future__ import annotations
 
-import argparse
 import logging
-from pathlib import Path
 from typing import Any
 
 import mlflow
-import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
@@ -65,9 +62,7 @@ def backtest(
     logger.info("Backtesting with %d features on %d series", len(feature_cols), len(series_df))
 
     results = []
-    for fold_i, (train_idx, test_idx) in enumerate(
-        playoff_season_cv_splits(series_df, season_col)
-    ):
+    for fold_i, (train_idx, test_idx) in enumerate(playoff_season_cv_splits(series_df, season_col)):
         train = series_df.loc[train_idx].copy()
         test = series_df.loc[test_idx].copy()
         test_season = test[season_col].iloc[0]
@@ -100,8 +95,11 @@ def backtest(
 
         logger.info(
             "Fold %d (test=%d): acc=%.3f, log_loss=%.3f, brier=%.3f",
-            fold_i, test_season,
-            fold_metrics["accuracy"], fold_metrics["log_loss"], fold_metrics["brier_score"],
+            fold_i,
+            test_season,
+            fold_metrics["accuracy"],
+            fold_metrics["log_loss"],
+            fold_metrics["brier_score"],
         )
 
     results_df = pd.DataFrame(results)
@@ -137,8 +135,10 @@ def backtest_and_log(
 
         logger.info(
             "Backtest complete: mean_acc=%.3f ± %.3f, mean_logloss=%.3f ± %.3f",
-            results_df["accuracy"].mean(), results_df["accuracy"].std(),
-            results_df["log_loss"].mean(), results_df["log_loss"].std(),
+            results_df["accuracy"].mean(),
+            results_df["accuracy"].std(),
+            results_df["log_loss"].mean(),
+            results_df["log_loss"].std(),
         )
 
     return results_df

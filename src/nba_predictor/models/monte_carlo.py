@@ -16,7 +16,6 @@ import random
 
 import numpy as np
 
-
 # NBA playoff home court format (from higher seed's perspective):
 # Games 1-2: home, Games 3-4: away, Game 5: home, Game 6: away, Game 7: home
 GAME_LOCATIONS = ["H", "H", "A", "A", "H", "A", "H"]
@@ -71,10 +70,7 @@ def simulate_series(
           - p_length_4, p_length_5, p_length_6, p_length_7: series length probs
           - expected_length: expected number of games
     """
-    if random_seed is not None:
-        rng = random.Random(random_seed)
-    else:
-        rng = random.Random()
+    rng = random.Random(random_seed) if random_seed is not None else random.Random()
 
     higher_seed_wins = 0
     length_counts = {4: 0, 5: 0, 6: 0, 7: 0}
@@ -83,7 +79,7 @@ def simulate_series(
         wins_higher = 0
         wins_lower = 0
 
-        for game_num, location in enumerate(GAME_LOCATIONS):
+        for _game_num, location in enumerate(GAME_LOCATIONS):
             p = p_home if location == "H" else p_away
             if rng.random() < p:
                 wins_higher += 1

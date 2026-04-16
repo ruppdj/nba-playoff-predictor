@@ -14,9 +14,7 @@ Run via: python -m nba_predictor.models.baseline
 
 from __future__ import annotations
 
-import argparse
 import logging
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -25,12 +23,10 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-import mlflow
-
-from nba_predictor.config import cfg, get_git_hash
+from nba_predictor.config import cfg
 from nba_predictor.evaluation.cv_strategy import playoff_season_cv_splits
 from nba_predictor.evaluation.metrics import compute_winner_metrics
-from nba_predictor.tracking.mlflow_logger import setup_mlflow, log_training_run
+from nba_predictor.tracking.mlflow_logger import log_training_run, setup_mlflow
 
 logger = logging.getLogger(__name__)
 
@@ -76,13 +72,15 @@ def run_cv_baseline(series_df: pd.DataFrame, C: float = 1.0) -> dict[str, list[f
     target_col = "higher_seed_wins"
 
     metrics_history: dict[str, list[float]] = {
-        "accuracy": [], "log_loss": [], "brier_score": [],
-        "upset_recall": [], "ece": [], "naive_accuracy": [],
+        "accuracy": [],
+        "log_loss": [],
+        "brier_score": [],
+        "upset_recall": [],
+        "ece": [],
+        "naive_accuracy": [],
     }
 
-    for fold_i, (train_idx, test_idx) in enumerate(
-        playoff_season_cv_splits(series_df)
-    ):
+    for fold_i, (train_idx, test_idx) in enumerate(playoff_season_cv_splits(series_df)):
         train = series_df.loc[train_idx]
         test = series_df.loc[test_idx]
 
@@ -92,9 +90,15 @@ def run_cv_baseline(series_df: pd.DataFrame, C: float = 1.0) -> dict[str, list[f
         y_test = test[target_col].values
 
         pipe = build_lr_pipeline(C)
-        # Wrap in calibration
-        calibrated = CalibratedClassifierCV(pipe, cv=5, method="isotonic")
-        calibrated.fit(X_train, y_train)
+        calibrated = CalibratedClassifierCV(pipe, cv=3, method="isotonic")
+        try:
+            calibrated.fit(X_train, y_train)
+        except ValueError:
+            # Single-class fold — fit uncalibrated then wrap with prefit calibration
+            logger.warning("Fold %d: single class in training set, skipping calibration.", fold_i)
+            pipe.fit(X_train, y_train)
+            calibrated = CalibratedClassifierCV(pipe, cv="prefit", method="isotonic")
+            calibrated.fit(X_train, y_train)
 
         y_pred = calibrated.predict(X_test)
         y_prob = calibrated.predict_proba(X_test)[:, 1]
@@ -114,7 +118,7 @@ def train_final_model(series_df: pd.DataFrame, C: float = 1.0) -> CalibratedClas
     y = series_df["higher_seed_wins"].values
 
     pipe = build_lr_pipeline(C)
-    calibrated = CalibratedClassifierCV(pipe, cv=5, method="isotonic")
+    calibrated = CalibratedClassifierCV(pipe, cv=3, method="isotonic")
     calibrated.fit(X, y)
     return calibrated
 
@@ -139,9 +143,12 @@ def main() -> None:
     # Log CV summary
     logger.info(
         "Baseline CV: acc=%.3f±%.3f, logloss=%.3f±%.3f, brier=%.3f±%.3f",
-        np.mean(cv_metrics["accuracy"]), np.std(cv_metrics["accuracy"]),
-        np.mean(cv_metrics["log_loss"]), np.std(cv_metrics["log_loss"]),
-        np.mean(cv_metrics["brier_score"]), np.std(cv_metrics["brier_score"]),
+        np.mean(cv_metrics["accuracy"]),
+        np.std(cv_metrics["accuracy"]),
+        np.mean(cv_metrics["log_loss"]),
+        np.std(cv_metrics["log_loss"]),
+        np.mean(cv_metrics["brier_score"]),
+        np.std(cv_metrics["brier_score"]),
     )
 
     # Train final model on all data

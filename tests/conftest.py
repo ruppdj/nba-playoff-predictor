@@ -87,7 +87,7 @@ def sample_player_advanced() -> pd.DataFrame:
                     {
                         "season": season,
                         "Player": player,
-                        "Tm": team,
+                        "Team": team,
                         "Team_abbrev": team,
                         "Pos": ["G", "F", "C"][i % 3],
                         "G": rng.integers(60, 82),

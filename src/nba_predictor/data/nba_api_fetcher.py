@@ -48,15 +48,18 @@ def _call_with_retry(endpoint_cls, **kwargs) -> pd.DataFrame:
     """Call an nba_api endpoint with rate limiting and retries."""
     for attempt in range(MAX_RETRIES):
         try:
-            result = endpoint_cls(**kwargs, timeout=30)
+            result = endpoint_cls(**kwargs, timeout=30, headers=HEADERS)
             time.sleep(RATE_LIMIT)
             return result.get_data_frames()[0]
         except Exception as exc:
-            wait = RATE_LIMIT * (2 ** attempt)
+            wait = RATE_LIMIT * (2**attempt)
             if attempt < MAX_RETRIES - 1:
                 logger.warning(
                     "nba_api call failed (%s). Retrying in %.1fs (attempt %d/%d).",
-                    exc, wait, attempt + 1, MAX_RETRIES,
+                    exc,
+                    wait,
+                    attempt + 1,
+                    MAX_RETRIES,
                 )
                 time.sleep(wait)
             else:
@@ -69,6 +72,7 @@ def _call_with_retry(endpoint_cls, **kwargs) -> pd.DataFrame:
 # Team advanced stats
 # =============================================================================
 
+
 def fetch_team_advanced_stats(season: int) -> pd.DataFrame:
     """Fetch team advanced stats (OFF_RATING, DEF_RATING, NET_RATING, PACE, PIE)."""
     season_str = _season_str(season)
@@ -77,14 +81,12 @@ def fetch_team_advanced_stats(season: int) -> pd.DataFrame:
         leaguedashteamstats.LeagueDashTeamStats,
         season=season_str,
         measure_type_detailed_defense="Advanced",
-        per_mode_simple="PerGame",
+        per_mode_detailed="PerGame",
         season_type_all_star=SeasonTypeAllStar.regular,
     )
     if not df.empty:
         df["season"] = season
-        df["Team_abbrev"] = df["TEAM_ABBREVIATION"].map(
-            lambda a: _safe_normalize(a)
-        )
+        df["Team_abbrev"] = df["TEAM_NAME"].map(lambda a: _safe_normalize(a))
     return df
 
 
@@ -113,6 +115,7 @@ def fetch_all_team_advanced(start: int, end: int, out_dir: Path) -> None:
 # Player advanced stats
 # =============================================================================
 
+
 def fetch_player_advanced_stats(season: int) -> pd.DataFrame:
     """Fetch player advanced stats (PIE, USG_PCT, TS_PCT, OFF/DEF_RATING)."""
     season_str = _season_str(season)
@@ -121,7 +124,7 @@ def fetch_player_advanced_stats(season: int) -> pd.DataFrame:
         leaguedashplayerstats.LeagueDashPlayerStats,
         season=season_str,
         measure_type_detailed_defense="Advanced",
-        per_mode_simple="PerGame",
+        per_mode_detailed="PerGame",
         season_type_all_star=SeasonTypeAllStar.regular,
     )
     if not df.empty:
@@ -147,8 +150,10 @@ def fetch_all_player_advanced(start: int, end: int, out_dir: Path) -> None:
 # Team game logs (for momentum features — last N games)
 # =============================================================================
 
-def fetch_team_game_log(team_id: int, season: int,
-                        season_type: str = "Regular Season") -> pd.DataFrame:
+
+def fetch_team_game_log(
+    team_id: int, season: int, season_type: str = "Regular Season"
+) -> pd.DataFrame:
     """Fetch all games for a team in a season."""
     season_str = _season_str(season)
     df = _call_with_retry(
@@ -163,9 +168,7 @@ def fetch_team_game_log(team_id: int, season: int,
     return df
 
 
-def fetch_all_team_game_logs(
-    team_ids: list[int], start: int, end: int, out_dir: Path
-) -> None:
+def fetch_all_team_game_logs(team_ids: list[int], start: int, end: int, out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     all_dfs = []
     for season in range(max(start, NBA_API_FIRST_SEASON), end + 1):
@@ -184,6 +187,7 @@ def fetch_all_team_game_logs(
 # Player game logs (for player momentum features)
 # =============================================================================
 
+
 def fetch_player_game_log(player_id: int, season: int) -> pd.DataFrame:
     """Fetch all games for a player in a regular season."""
     season_str = _season_str(season)
@@ -191,7 +195,7 @@ def fetch_player_game_log(player_id: int, season: int) -> pd.DataFrame:
         playergamelog.PlayerGameLog,
         player_id=player_id,
         season=season_str,
-        season_type_all_star="RegularSeason",
+        season_type_all_star=SeasonTypeAllStar.regular,
     )
     if not df.empty:
         df["season"] = season
@@ -202,6 +206,7 @@ def fetch_player_game_log(player_id: int, season: int) -> pd.DataFrame:
 # =============================================================================
 # Team rosters
 # =============================================================================
+
 
 def fetch_team_roster(team_id: int, season: int) -> pd.DataFrame:
     """Fetch the roster for a team in a given season."""
@@ -236,15 +241,18 @@ def fetch_all_rosters(team_ids: list[int], start: int, end: int, out_dir: Path) 
 # Active NBA team IDs helper
 # =============================================================================
 
+
 def get_nba_team_ids() -> list[int]:
     """Return list of all active NBA team IDs."""
     from nba_api.stats.static import teams as nba_teams
+
     return [t["id"] for t in nba_teams.get_teams()]
 
 
 # =============================================================================
 # CLI entry point
 # =============================================================================
+
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Fetch NBA Stats API data")

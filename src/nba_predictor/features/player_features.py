@@ -52,9 +52,9 @@ def aggregate_player_to_team(
 
     # Handle players who were traded mid-season (multiple rows, "TOT" row)
     # Keep the TOT row when present (represents the full season)
-    pa = pa[pa["Tm"] != "TOT"].copy()  # drop individual stints
+    pa = pa[pa["Team"] != "TOT"].copy()  # drop individual stints
     # Re-add TOT rows separately if they exist
-    tot = player_advanced[player_advanced["Tm"] == "TOT"].copy()
+    tot = player_advanced[player_advanced["Team"] == "TOT"].copy()
     pa = pd.concat([pa, tot], ignore_index=True)
 
     pa["MP_weight"] = _minutes_weight(pa)
@@ -68,10 +68,7 @@ def aggregate_player_to_team(
         star = g.head(1)
 
         # Minutes-weighted averages
-        if "BPM" in g.columns:
-            bpm_wavg = (g["BPM"] * g["MP_weight"]).sum()
-        else:
-            bpm_wavg = np.nan
+        bpm_wavg = (g["BPM"] * g["MP_weight"]).sum() if "BPM" in g.columns else np.nan
 
         ws48_wavg = (g["WS/48"] * g["MP_weight"]).sum() if "WS/48" in g.columns else np.nan
         vorp_sum = g["VORP"].sum() if "VORP" in g.columns else np.nan
@@ -82,7 +79,11 @@ def aggregate_player_to_team(
 
         # Positional VORP (Guard, Forward, Center)
         def _pos_vorp(pos_filter: str) -> float:
-            subset = g[g["Pos"].str.contains(pos_filter, na=False)] if "Pos" in g.columns else pd.DataFrame()
+            subset = (
+                g[g["Pos"].str.contains(pos_filter, na=False)]
+                if "Pos" in g.columns
+                else pd.DataFrame()
+            )
             return subset["VORP"].sum() if not subset.empty and "VORP" in subset.columns else np.nan
 
         return pd.Series(
@@ -101,14 +102,10 @@ def aggregate_player_to_team(
         )
 
     team_player = (
-        pa.groupby(["season", "Team_abbrev"])
-        .apply(_agg_team)
-        .reset_index()
+        pa.groupby(["season", "Team_abbrev"]).apply(_agg_team, include_groups=False).reset_index()
     )
 
-    logger.info(
-        "Player aggregation complete: %d team-seasons", len(team_player)
-    )
+    logger.info("Player aggregation complete: %d team-seasons", len(team_player))
     return team_player
 
 
@@ -129,10 +126,14 @@ def compute_player_momentum(
         logger.warning("Player game logs empty — returning empty momentum DataFrame.")
         return pd.DataFrame(
             columns=[
-                "season", "Team_abbrev",
-                "Star_PTS_L10_delta", "Star_TS_pct_L10_delta",
-                "Top5_PTS_L10_delta_avg", "Top5_MP_L10_avg",
-                "Star_GP_L10", "Top5_GP_L10_avg",
+                "season",
+                "Team_abbrev",
+                "Star_PTS_L10_delta",
+                "Star_TS_pct_L10_delta",
+                "Top5_PTS_L10_delta_avg",
+                "Top5_MP_L10_avg",
+                "Star_GP_L10",
+                "Top5_GP_L10_avg",
             ]
         )
 
@@ -153,7 +154,7 @@ def compute_player_momentum(
             pa[col] = pd.to_numeric(pa[col], errors="coerce")
 
     top_players = (
-        pa[pa["Tm"] != "TOT"]
+        pa[pa["Team"] != "TOT"]
         .sort_values("MP", ascending=False)
         .groupby(["season", "Team_abbrev"])
         .head(top_n_players)[["season", "Team_abbrev", "Player", "MP", "BPM"]]
@@ -161,7 +162,9 @@ def compute_player_momentum(
 
     rows = []
     for (season, team), players in top_players.groupby(["season", "Team_abbrev"]):
-        star_pid = players.sort_values("BPM", ascending=False)["Player"].iloc[0] if len(players) else None
+        star_pid = (
+            players.sort_values("BPM", ascending=False)["Player"].iloc[0] if len(players) else None
+        )
 
         team_metrics: dict = {"season": season, "Team_abbrev": team}
         star_pts_delta = np.nan
@@ -213,7 +216,9 @@ def compute_player_momentum(
         team_metrics["Star_PTS_L10_delta"] = star_pts_delta
         team_metrics["Star_TS_pct_L10_delta"] = star_ts_delta
         team_metrics["Star_GP_L10"] = star_gp
-        team_metrics["Top5_PTS_L10_delta_avg"] = np.nanmean(top5_pts_deltas) if top5_pts_deltas else np.nan
+        team_metrics["Top5_PTS_L10_delta_avg"] = (
+            np.nanmean(top5_pts_deltas) if top5_pts_deltas else np.nan
+        )
         team_metrics["Top5_MP_L10_avg"] = np.nanmean(top5_mp_last) if top5_mp_last else np.nan
         team_metrics["Top5_GP_L10_avg"] = np.nanmean(top5_gp) if top5_gp else np.nan
 

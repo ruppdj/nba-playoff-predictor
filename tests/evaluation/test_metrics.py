@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import numpy as np
-import pytest
-
 import sys
 from pathlib import Path
+
+import numpy as np
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from nba_predictor.evaluation.metrics import (
-    compute_winner_metrics,
     compute_length_metrics,
+    compute_winner_metrics,
     expected_calibration_error,
 )
 
@@ -39,8 +39,8 @@ def test_naive_accuracy_is_higher_seed_win_rate():
 
 def test_upset_recall_all_upsets_caught():
     """When model predicts all upsets correctly, upset_recall = 1."""
-    y_true = np.array([0, 1, 0, 1])   # 2 upsets
-    y_pred = np.array([0, 1, 0, 1])   # correctly predicted
+    y_true = np.array([0, 1, 0, 1])  # 2 upsets
+    y_pred = np.array([0, 1, 0, 1])  # correctly predicted
     y_prob = np.array([0.3, 0.7, 0.3, 0.7])
     metrics = compute_winner_metrics(y_true, y_pred, y_prob)
     assert metrics["upset_recall"] == 1.0
@@ -48,8 +48,8 @@ def test_upset_recall_all_upsets_caught():
 
 def test_upset_recall_no_upsets_caught():
     """When model never predicts upsets, upset_recall = 0."""
-    y_true = np.array([0, 1, 0, 1])   # 2 upsets
-    y_pred = np.array([1, 1, 1, 1])   # always predicts higher seed
+    y_true = np.array([0, 1, 0, 1])  # 2 upsets
+    y_pred = np.array([1, 1, 1, 1])  # always predicts higher seed
     y_prob = np.array([0.7, 0.7, 0.7, 0.7])
     metrics = compute_winner_metrics(y_true, y_pred, y_prob)
     assert metrics["upset_recall"] == 0.0

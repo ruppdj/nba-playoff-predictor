@@ -5,18 +5,19 @@ Critical: CV must be strictly temporal — no future data in training.
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
 
-import sys
-from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 from nba_predictor.evaluation.cv_strategy import (
-    playoff_season_cv_splits,
-    n_cv_folds,
     get_cv_fold_summary,
+    n_cv_folds,
+    playoff_season_cv_splits,
 )
 
 
@@ -43,9 +44,9 @@ def test_training_set_grows():
     df = _make_df(list(range(1984, 2000)))
     sizes = [len(ti) for ti, _ in playoff_season_cv_splits(df, min_train_seasons=5)]
     for i in range(1, len(sizes)):
-        assert sizes[i] > sizes[i - 1], (
-            f"Fold {i} training size {sizes[i]} should be larger than fold {i-1} size {sizes[i-1]}"
-        )
+        assert (
+            sizes[i] > sizes[i - 1]
+        ), f"Fold {i} training size {sizes[i]} should be larger than fold {i-1} size {sizes[i-1]}"
 
 
 def test_test_set_is_single_season():
@@ -62,9 +63,9 @@ def test_minimum_train_seasons_enforced():
     min_train = 8
     for train_idx, _ in playoff_season_cv_splits(df, min_train_seasons=min_train):
         n_train_seasons = df.loc[train_idx, "season"].nunique()
-        assert n_train_seasons >= min_train, (
-            f"Train set has {n_train_seasons} seasons but min is {min_train}"
-        )
+        assert (
+            n_train_seasons >= min_train
+        ), f"Train set has {n_train_seasons} seasons but min is {min_train}"
         break  # only check first fold
 
 

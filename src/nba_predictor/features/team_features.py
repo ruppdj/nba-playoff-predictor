@@ -9,7 +9,6 @@ Computes season-level team features including:
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -23,6 +22,13 @@ logger = logging.getLogger(__name__)
 MOMENTUM_WINDOWS = cfg.modeling["momentum"]["last_n_games"]  # [10, 20]
 
 
+def _safe_normalize_team(name: str) -> str:
+    try:
+        return cfg.normalize_team(name)
+    except KeyError:
+        return name
+
+
 def compute_win_pct(df: pd.DataFrame) -> pd.DataFrame:
     """Add Win_pct column from W and L columns."""
     df = df.copy()
@@ -33,18 +39,46 @@ def compute_win_pct(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _round_depth(round_name: str) -> int:
+    """Convert a round name string to a numeric depth value (1–4).
+
+    Actual values in data: "Eastern/Western Conference First Round",
+    "Eastern/Western Conference Semifinals", "Eastern/Western Conference Finals",
+    "Finals" (the championship round — no conference prefix).
+
+    1 = First Round, 2 = Conference Semifinals, 3 = Conference Finals,
+    4 = NBA Finals appearance (loser). Champion (Finals winner) gets 5 separately.
+    """
+    r = round_name.lower()
+    if "first round" in r:
+        return 1
+    if "semifinal" in r:
+        return 2
+    if "conference finals" in r:
+        return 3
+    # Plain "Finals" (no "conference" prefix) is the championship round
+    if "finals" in r:
+        return 4
+    return 0
+
+
 def compute_playoff_experience(
     team_stats: pd.DataFrame, playoff_series: pd.DataFrame
 ) -> pd.DataFrame:
-    """Add Playoff_experience_years and Prior_playoff_win_pct to team stats.
+    """Add playoff experience and history features to team stats.
 
-    Playoff_experience_years: how many of the prior 5 seasons did this team
-    appear in the playoffs.
-    Prior_playoff_win_pct: team's playoff win rate over prior 3 seasons.
+    Features added:
+      Playoff_experience_years   — appearances in prior 5 seasons
+      Prior_playoff_win_pct      — series W% over prior 3 seasons
+      Prior_deepest_round        — max round reached across last 2 appearances
+                                   (0=none, 1=1st rd, 2=semis, 3=conf finals,
+                                    4=finals loss, 5=champion)
+      Prior_champion_3yr         — 1 if won championship in any of prior 3 seasons
+      Prior_playoff_appearances_2yr — appearances in prior 2 seasons (0, 1, or 2)
     """
     team_stats = team_stats.copy()
 
-    # Build set of playoff teams by season from series data
+    # Build set of playoff teams by season
     playoff_teams: dict[int, set[str]] = {}
     for _, row in playoff_series.iterrows():
         season = int(row["season"])
@@ -53,43 +87,77 @@ def compute_playoff_experience(
         playoff_teams[season].add(row["team_a"])
         playoff_teams[season].add(row["team_b"])
 
-    # Series win counts per team per season
+    # Series win counts per team per season (for Prior_playoff_win_pct)
     playoff_wins: dict[tuple[int, str], int] = {}
     playoff_games: dict[tuple[int, str], int] = {}
+
+    # Max round depth per team per season (for Prior_deepest_round / Prior_champion_3yr)
+    # Value 5 = champion (won NBA Finals)
+    round_depth: dict[tuple[int, str], int] = {}
+
     for _, row in playoff_series.iterrows():
         season = int(row["season"])
-        winner = row["series_winner"]
-        loser = row["team_b"] if winner == row["team_a"] else row["team_a"]
+        winner = str(row["series_winner"])
+        loser = str(row["team_b"]) if winner == str(row["team_a"]) else str(row["team_a"])
+        round_name = str(row.get("round", ""))
+
+        # Series win tracking
         playoff_wins[(season, winner)] = playoff_wins.get((season, winner), 0) + 1
         playoff_games[(season, winner)] = playoff_games.get((season, winner), 0) + 1
         playoff_games[(season, loser)] = playoff_games.get((season, loser), 0) + 1
 
+        # Round depth tracking — champion gets 5, Finals loser gets 4, others equal
+        depth = _round_depth(round_name)
+        winner_depth = 5 if depth == 4 else depth  # NBA Finals winner = champion
+        loser_depth = depth
+
+        key_w = (season, winner)
+        key_l = (season, loser)
+        round_depth[key_w] = max(round_depth.get(key_w, 0), winner_depth)
+        round_depth[key_l] = max(round_depth.get(key_l, 0), loser_depth)
+
     experience_years = []
     prior_win_pct = []
+    prior_deepest = []
+    prior_champion = []
+    apps_2yr = []
+
     for _, row in team_stats.iterrows():
         season = int(row["season"])
         team = str(row.get("Team_abbrev", ""))
 
-        # Experience: how many of prior 5 seasons was this team in playoffs?
-        exp = sum(
-            1 for s in range(season - 5, season)
-            if team in playoff_teams.get(s, set())
-        )
+        # Experience: appearances in prior 5 seasons
+        exp = sum(1 for s in range(season - 5, season) if team in playoff_teams.get(s, set()))
         experience_years.append(exp)
 
-        # Prior win pct: series wins / series played over prior 3 seasons
+        # Prior win pct: series W% over prior 3 seasons
         wins = sum(playoff_wins.get((s, team), 0) for s in range(season - 3, season))
         games = sum(playoff_games.get((s, team), 0) for s in range(season - 3, season))
         prior_win_pct.append(wins / games if games > 0 else np.nan)
 
+        # Deepest round across last 2 playoff appearances
+        depth_vals = [
+            round_depth[(s, team)] for s in range(season - 2, season) if (s, team) in round_depth
+        ]
+        prior_deepest.append(max(depth_vals) if depth_vals else 0)
+
+        # Champion in any of prior 3 seasons
+        champ = int(any(round_depth.get((s, team), 0) == 5 for s in range(season - 3, season)))
+        prior_champion.append(champ)
+
+        # Appearances in prior 2 seasons
+        apps = sum(1 for s in range(season - 2, season) if team in playoff_teams.get(s, set()))
+        apps_2yr.append(apps)
+
     team_stats["Playoff_experience_years"] = experience_years
     team_stats["Prior_playoff_win_pct"] = prior_win_pct
+    team_stats["Prior_deepest_round"] = prior_deepest
+    team_stats["Prior_champion_3yr"] = prior_champion
+    team_stats["Prior_playoff_appearances_2yr"] = apps_2yr
     return team_stats
 
 
-def compute_momentum_features(
-    team_stats: pd.DataFrame, game_logs: pd.DataFrame
-) -> pd.DataFrame:
+def compute_momentum_features(team_stats: pd.DataFrame, game_logs: pd.DataFrame) -> pd.DataFrame:
     """Add last-N-game momentum features to team stats.
 
     For each team-season, computes:
@@ -115,11 +183,45 @@ def compute_momentum_features(
     team_stats = team_stats.copy()
     game_logs = game_logs.copy()
     game_logs["GAME_DATE"] = pd.to_datetime(game_logs["GAME_DATE"], errors="coerce")
+
+    # Derive Team_abbrev from MATCHUP if not already present ("ATL @ MIA" → "ATL")
+    if "Team_abbrev" not in game_logs.columns and "MATCHUP" in game_logs.columns:
+        game_logs["Team_abbrev"] = (
+            game_logs["MATCHUP"]
+            .str.extract(r"^([A-Z]{2,3})", expand=False)
+            .map(lambda t: _safe_normalize_team(str(t)) if pd.notna(t) else t)
+        )
+
+    if "Team_abbrev" not in game_logs.columns:
+        logger.warning("Game logs missing Team_abbrev — skipping momentum features.")
+        for window in MOMENTUM_WINDOWS:
+            n = window
+            for col in [f"L{n}_NRtg", f"L{n}_Win_pct", f"L{n}_NRtg_delta"]:
+                team_stats[col] = np.nan
+        team_stats["current_win_streak"] = np.nan
+        team_stats["L10_home_win_pct"] = np.nan
+        team_stats["L10_away_win_pct"] = np.nan
+        return team_stats
+
     game_logs = game_logs.sort_values(["season", "Team_abbrev", "GAME_DATE"])
 
-    # Compute per-game net rating proxy from PLUS_MINUS if available
+    # Compute per-game net rating proxy from PLUS_MINUS if available.
+    # If absent, derive it as PTS - opponent_PTS using Game_ID: each game
+    # has exactly two rows in the combined log (one per team), so we can
+    # join each row with the other team's row for the same Game_ID.
     if "PLUS_MINUS" not in game_logs.columns:
-        game_logs["PLUS_MINUS"] = np.nan
+        if "Game_ID" in game_logs.columns and "PTS" in game_logs.columns:
+            opp_pts = game_logs[["Game_ID", "Team_abbrev", "PTS"]].rename(
+                columns={"Team_abbrev": "opp_abbrev", "PTS": "OPP_PTS"}
+            )
+            game_logs = game_logs.merge(opp_pts, on="Game_ID", how="left")
+            # Drop self-join rows (same team)
+            same = game_logs["Team_abbrev"] == game_logs["opp_abbrev"]
+            game_logs = game_logs[~same].copy()
+            game_logs["PLUS_MINUS"] = game_logs["PTS"] - game_logs["OPP_PTS"]
+            game_logs = game_logs.drop(columns=["opp_abbrev", "OPP_PTS"])
+        else:
+            game_logs["PLUS_MINUS"] = np.nan
 
     def _last_n_stats(group: pd.DataFrame, n: int) -> dict:
         last = group.tail(n)

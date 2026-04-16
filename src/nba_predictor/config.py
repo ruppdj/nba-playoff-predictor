@@ -24,8 +24,9 @@ class Config:
     def __init__(self, path: Path = CONF_PATH) -> None:
         self._raw: dict[str, Any] = _load_yaml(path)
         # Top-level keys as attributes (skip keys that are defined as properties)
-        _property_names = {name for name, val in type(self).__dict__.items()
-                           if isinstance(val, property)}
+        _property_names = {
+            name for name, val in type(self).__dict__.items() if isinstance(val, property)
+        }
         for key, value in self._raw.items():
             if key not in _property_names:
                 setattr(self, key, value)
@@ -37,9 +38,15 @@ class Config:
 
     @property
     def season_range(self) -> list[int]:
-        """All seasons in the training range (inclusive)."""
+        """All seasons in the fetch range (inclusive)."""
         s = self.seasons
         return list(range(s["start"], s["end"] + 1))
+
+    @property
+    def model_season_range(self) -> list[int]:
+        """Seasons included in the training dataset (model_start to end, inclusive)."""
+        s = self.seasons
+        return list(range(s.get("model_start", s["start"]), s["end"] + 1))
 
     @property
     def team_name_map(self) -> dict[str, str]:
@@ -74,11 +81,15 @@ class Config:
 def get_git_hash() -> str:
     """Return the current git commit hash (for MLflow tagging)."""
     try:
-        return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"],
-            cwd=PROJECT_ROOT,
-            stderr=subprocess.DEVNULL,
-        ).decode().strip()
+        return (
+            subprocess.check_output(
+                ["git", "rev-parse", "HEAD"],
+                cwd=PROJECT_ROOT,
+                stderr=subprocess.DEVNULL,
+            )
+            .decode()
+            .strip()
+        )
     except Exception:
         return "unknown"
 
