@@ -15,16 +15,21 @@ A reproducible machine learning experiment for predicting NBA playoff series win
 
 ### 2026 Bracket Prediction
 
-**Predicted champion: OKC Thunder (11.9%)** — NBA Finals: OKC def. DET in 6.
+**Predicted champion: OKC Thunder (12.0%)** — NBA Finals: OKC def. BOS in 5.
+
+Bracket uses a 53.2% upset threshold — the lower seed is picked whenever `P(higher seed wins) < 0.532`, adding upset picks in the three closest matchups. Upsets marked with *.
 
 | Round | East | West |
 |-------|------|------|
-| R1 | DET def. PHI (in 4), BOS def. ORL (in 4), NYK def. ATL (in 5), CLE def. TOR (in 5) | OKC def. LAC (in 4), SAS def. POR (in 7), DEN def. MIN (in 6), HOU def. LAL (in 6) |
-| R2 | DET def. CLE (in 4), BOS def. NYK (in 6) | OKC def. HOU (in 5), SAS def. DEN (in 5) |
-| CF | **DET** def. BOS (in 5) | **OKC** def. SAS (in 7) |
-| Finals | **OKC** def. DET (in 6) | |
+| R1 | DET def. ORL (in 6), BOS def. PHI (in 5), NYK def. ATL (in 5), **TOR* def. CLE (in 5)** | OKC def. PHO (in 5), SAS def. POR (in 7), **MIN* def. DEN (in 6)**, **HOU* def. LAL (in 5)** |
+| R2 | DET def. TOR (in 6), BOS def. NYK (in 6) | OKC def. HOU (in 5), SAS def. MIN (in 6) |
+| CF | **BOS*** def. DET (in 5) | **OKC** def. SAS (in 7) |
+| Finals | **OKC** def. BOS (in 5) | |
+
+3 upsets predicted (historical average: 3.8 per playoff). Play-in results confirmed April 18, 2026: PHI=E7, ORL=E8, PHO=W8 (LAC missed playoffs), LAL=W4, HOU=W5.
 
 > See `data/predictions/2026/bracket_output.csv` for per-series probabilities and series-length distributions.
+> Run `python -m nba_predictor.predict.bracket_simulator --upset-threshold 0.532` to reproduce.
 
 ---
 

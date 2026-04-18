@@ -9,6 +9,13 @@ the Monte Carlo loop (16 teams → 120 pairs), so simulation is fast (~1 sec).
 
 Run via: python -m nba_predictor.predict.bracket_simulator --season 2026
       or: make predict
+
+Options:
+  --upset-threshold FLOAT   Pick the lower seed when P(higher seed wins) < this
+                            value. Default 0.5 (standard). The 2026 final
+                            prediction uses 0.532, which adds TOR over CLE and
+                            MIN over DEN on top of the HOU over LAL call.
+                            Upset picks are marked with * in printed output.
 """
 
 from __future__ import annotations
@@ -354,11 +361,16 @@ def _series_pick(
     conference: str,
     length_model: Any | None = None,
     season: int = 2026,
+    upset_threshold: float = 0.5,
 ) -> dict:
     """Return a series pick dict for any team pair.
 
     Determines higher/lower seed by comparing seed numbers, looks up the
     pre-computed win probability, and estimates series length from NRtg delta.
+
+    upset_threshold: pick the lower seed (upset) when p_higher_seed < this value.
+      Default 0.5 = standard behaviour. Set e.g. 0.55 to call any sub-55% matchup
+      an upset, giving the bracket more predicted upsets.
     """
     seed_a = int(_team_attr(team_store, team_a, "seed") or 99)
     seed_b = int(_team_attr(team_store, team_b, "seed") or 99)
@@ -373,8 +385,8 @@ def _series_pick(
     if key not in prob_table and (lower, higher) in prob_table:
         p_higher = 1.0 - p_higher
 
-    winner = higher if p_higher >= 0.5 else lower
-    p_winner = p_higher if p_higher >= 0.5 else 1.0 - p_higher
+    winner = higher if p_higher >= upset_threshold else lower
+    p_winner = p_higher if p_higher >= upset_threshold else 1.0 - p_higher
 
     seed_diff = float(abs(seed_b - seed_a))
     feat_row = pd.DataFrame(
@@ -415,6 +427,7 @@ def build_greedy_bracket(
     team_store: pd.DataFrame,
     length_model: Any | None = None,
     season: int = 2026,
+    upset_threshold: float = 0.5,
 ) -> list[dict]:
     """Build the full greedy bracket (all 4 rounds) from pre-computed probs.
 
@@ -438,15 +451,17 @@ def build_greedy_bracket(
         )
         # Slots: 0=1v8, 1=2v7, 2=3v6, 3=4v5
         for s in conf_r1:
+            p_h = round(s["p_higher_seed_wins"], 4)
+            r1_winner = s["lower_seed"] if p_h < upset_threshold else s["higher_seed"]
             all_picks.append(
                 {
                     "round": "first_round",
                     "conference": conf,
                     "higher_seed": s["higher_seed"],
                     "lower_seed": s["lower_seed"],
-                    "predicted_winner": s["predicted_winner"],
-                    "p_winner": round(max(s["p_higher_seed_wins"], 1 - s["p_higher_seed_wins"]), 4),
-                    "p_higher_seed_wins": round(s["p_higher_seed_wins"], 4),
+                    "predicted_winner": r1_winner,
+                    "p_winner": round(max(p_h, 1 - p_h), 4),
+                    "p_higher_seed_wins": p_h,
                     "expected_length": s.get("expected_length", 0.0),
                     "modal_length": s.get("modal_length", 6),
                     "p_length_4": s.get("p_length_4", 0.0),
@@ -456,7 +471,7 @@ def build_greedy_bracket(
                 }
             )
 
-        r1_winners = [s["predicted_winner"] for s in conf_r1]
+        r1_winners = [s["predicted_winner"] for s in all_picks[-4:]]
 
         # R2 — Semi A: winner(1v8) vs winner(4v5), Semi B: winner(2v7) vs winner(3v6)
         semi_a = _series_pick(
@@ -468,6 +483,7 @@ def build_greedy_bracket(
             conf,
             length_model,
             season,
+            upset_threshold,
         )
         semi_b = _series_pick(
             r1_winners[1],
@@ -478,6 +494,7 @@ def build_greedy_bracket(
             conf,
             length_model,
             season,
+            upset_threshold,
         )
         all_picks.extend([semi_a, semi_b])
         r2_winners = [semi_a["predicted_winner"], semi_b["predicted_winner"]]
@@ -492,6 +509,7 @@ def build_greedy_bracket(
             conf,
             length_model,
             season,
+            upset_threshold,
         )
         all_picks.append(cf)
         cf_winners[conf] = cf["predicted_winner"]
@@ -506,6 +524,7 @@ def build_greedy_bracket(
         "Finals",
         length_model,
         season,
+        upset_threshold,
     )
     all_picks.append(finals)
     return all_picks
@@ -572,21 +591,29 @@ def print_full_bracket(results: dict, season: int) -> None:
                 continue
             print(f"  {'─'*3} {ROUND_LABELS[rnd]} {'─'*40}"[:55])
             for s in series_in_round:
+                upset_marker = " *" if s["predicted_winner"] == s["lower_seed"] else ""
                 print(
                     f"    {s['higher_seed']:3s} vs {s['lower_seed']:3s}"
                     f"  →  {s['predicted_winner']:3s}"
                     f"  ({s['p_winner']*100:.1f}%, in {s['modal_length']})"
+                    f"{upset_marker}"
                 )
 
     # NBA Finals
     finals_list = [s for s in bracket if s["round"] == "nba_finals"]
     if finals_list:
         f = finals_list[0]
+        upset_marker = " *" if f["predicted_winner"] == f["lower_seed"] else ""
         print(f"\n  {'─'*3} NBA FINALS {'─'*43}"[:55])
         print(
             f"    {f['higher_seed']:3s} vs {f['lower_seed']:3s}"
             f"  →  {f['predicted_winner']:3s}"
             f"  ({f['p_winner']*100:.1f}%, in {f['modal_length']})"
+            f"{upset_marker}"
+        )
+    if results.get("upset_threshold", 0.5) > 0.5:
+        print(
+            f"\n  (* = upset pick — lower seed predicted to win; threshold={results['upset_threshold']:.0%})"
         )
 
     # Probability table
@@ -621,6 +648,13 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--season", type=int, default=cfg.seasons["current"])
     parser.add_argument("--n-simulations", type=int, default=N_SIMULATIONS)
+    parser.add_argument(
+        "--upset-threshold",
+        type=float,
+        default=0.5,
+        help="Pick the lower seed (upset) when P(higher seed wins) < this value. "
+        "Default 0.5 = standard. Try 0.55 for more upset picks.",
+    )
     return parser.parse_args()
 
 
@@ -660,8 +694,13 @@ def main() -> None:
         n_simulations=args.n_simulations,
         length_model=length_model,
     )
+    results["upset_threshold"] = args.upset_threshold
     results["full_bracket"] = build_greedy_bracket(
-        results, team_store, length_model=length_model, season=args.season
+        results,
+        team_store,
+        length_model=length_model,
+        season=args.season,
+        upset_threshold=args.upset_threshold,
     )
     save_predictions(results, args.season)
     print_full_bracket(results, args.season)

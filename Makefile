@@ -116,7 +116,8 @@ evaluate:
 predict:
 	@echo "==> Generating 2026 bracket predictions..."
 	$(PYTHON) -m nba_predictor.predict.bracket_simulator \
-	    --season 2026
+	    --season 2026 \
+	    --upset-threshold 0.532
 	$(JUPYTER) $(NB_DIR)/09_bracket_prediction_2026.ipynb
 	@echo "==> Predictions written to data/predictions/2026/bracket_output.csv"
 
