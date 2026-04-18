@@ -27,24 +27,23 @@ logger = logging.getLogger(__name__)
 # 2026 NBA Playoff first-round matchups
 # (higher_seed_abbrev, lower_seed_abbrev, higher_seed_number, lower_seed_number, conference)
 #
-# Confirmed seeds via CBS Sports / NBA.com (April 15, 2026).
-# East 7/8 and West 8 from play-in (Apr 15-17); most-likely outcomes used:
-#   East 7 → ORL (Magic play PHI tonight for 7 seed)
-#   East 8 → PHI (76ers expected to beat CHO in 8-seed game Apr 17)
-#   West 8 → LAC (Clippers play GSW tonight; winner faces PHO Apr 17 for 8 seed)
+# Confirmed seeds via CBS Sports / NBC Sports / Wikipedia (April 18, 2026).
+# Play-in results:
+#   East 7 → PHI (76ers), East 8 → ORL (Magic)
+#   West 8 → PHO (Suns); LAC missed playoffs
 # ---------------------------------------------------------------------------
 BRACKET_2026 = {
     "East": [
-        ("DET", "PHI", 1, 8, "East"),  # E1 Pistons vs E8 76ers
-        ("BOS", "ORL", 2, 7, "East"),  # E2 Celtics vs E7 Magic
+        ("DET", "ORL", 1, 8, "East"),  # E1 Pistons vs E8 Magic
+        ("BOS", "PHI", 2, 7, "East"),  # E2 Celtics vs E7 76ers
         ("NYK", "ATL", 3, 6, "East"),  # E3 Knicks  vs E6 Hawks
         ("CLE", "TOR", 4, 5, "East"),  # E4 Cavs    vs E5 Raptors
     ],
     "West": [
-        ("OKC", "LAC", 1, 8, "West"),  # W1 Thunder vs W8 Clippers (play-in TBD)
+        ("OKC", "PHO", 1, 8, "West"),  # W1 Thunder vs W8 Suns
         ("SAS", "POR", 2, 7, "West"),  # W2 Spurs   vs W7 Trail Blazers
         ("DEN", "MIN", 3, 6, "West"),  # W3 Nuggets vs W6 Timberwolves
-        ("HOU", "LAL", 4, 5, "West"),  # W4 Rockets vs W5 Lakers
+        ("LAL", "HOU", 4, 5, "West"),  # W4 Lakers  vs W5 Rockets
     ],
 }
 
