@@ -193,3 +193,12 @@ Full rendered bracket: `reports/bracket_2026.md`
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+
+
+# CLAUDE: got message below from trying to run: """
+make mlflow-ui
+Command 'make' not found, but can be installed with:
+sudo apt install make        # version 4.3-4.1build1, or
+sudo apt install make-guile  # version 4.3-4.1build1
+"""

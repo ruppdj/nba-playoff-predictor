@@ -85,7 +85,7 @@ Absolute (not delta) flags included for both sides.
 ---
 
 ## Injury Flags
-
+# CLAUDE: why is has_injury_data  been defaulted as 0?  Why cant we get that injury data at the start of each playoff and use that?  I want a quick description of what injury data we are using and why we arent able to use "live injury data"
 Absolute (not delta) flags included for both higher and lower seed. All default to "healthy" (no live injury data fetched). See `DATA_DICTIONARY.md` for details.
 
 Column pattern: `higher_{col}` and `lower_{col}` for each of the following.
@@ -106,6 +106,8 @@ Column pattern: `higher_{col}` and `lower_{col}` for each of the following.
 ## Head-to-Head Features
 
 Computed from `data/raw/nba_api/team_game_logs/team_game_logs_all.parquet` by `matchup_features.py:_compute_h2h()`. Available for seasons ≥ 1996.
+
+# CLAUDE: These features seem to be blank for the 2026 prediction year data frame.  Why is that?
 
 | Feature | Description |
 |---------|-------------|
@@ -235,4 +237,5 @@ Step 7 — Matchup construction (one row per series)
 - **Era normalization**: All `*_norm` features are z-scored *within each season*, not globally. This ensures comparability across the 1984–2025 range where league-wide stats shifted dramatically (pace, 3-point rate, scoring). See `notebooks/05_era_normalization.ipynb`.
 - **Missing values**: Features that require game logs (momentum, H2H) are NaN for seasons before 1996 or teams not in the NBA API data. The models fill NaN with 0 (`fillna(0)`).
 - **Injury features**: All availability values default to 1.0 (fully healthy) because live injury report data was not fetched. The `has_injury_data` flag is 0 for all rows. See `DATA_DICTIONARY.md` for details.
+  # CLAUDE: does this mean no injury data was used in the final predictions of the model for this year?  If so this needs to be fixed and rerun.  (you will need to make sure you only pull data up until april 17th)
 - **Feature selection**: Only columns that exist in the DataFrame are used (`[c for c in all_feat if c in df.columns]`). This makes the pipeline robust to missing or renamed columns.

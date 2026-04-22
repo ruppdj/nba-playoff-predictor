@@ -242,6 +242,8 @@ See the [Feature Dictionary](FEATURES.md) for full column descriptions.
 ---
 
 ### `data/predictions/2026/`
+# CLAUDE: when looking at file bracket_input.csv what is the has injury data fields?  this all looks to be false but why? H2H_win_pct, H2H_NRtg_avg, H2H_games_played, Competitive_balance_index also seem to be null or zero as well. Why?
+
 
 | File | Description |
 |------|-------------|
@@ -283,6 +285,7 @@ See the [Feature Dictionary](FEATURES.md) for full column descriptions.
 ## Reports
 
 ### `reports/backtest_results.csv`
+# CLAUDE: is this right that each "fold" is all previous seasons for training then predicting on just the "current" playoff?  ie predicting 2019 will use all data up to the 2019 playoffs (training  data as past seasons) and prediction all current year stats?  I want to make sure we are not using old or stale data for predictions ever.
 Walk-forward CV results written by `src/nba_predictor/evaluation/backtesting.py`.
 
 | Column | Description |

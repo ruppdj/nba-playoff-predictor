@@ -18,6 +18,9 @@ Options:
                             Upset picks are marked with * in printed output.
 """
 
+
+# CLAUDE: I want a full explination of the models and data flow used for these predictions.  I understand how the models them selfs (xgboost, log regression ect) work but I want to now what you are doing with the inputs and outputs of these models to get to the final predictions.  including the monty carlo part and the prameters used and why.
+
 from __future__ import annotations
 
 import argparse
@@ -563,7 +566,24 @@ def save_predictions(results: dict, season: int) -> Path:
     champ_path = out_dir / "champion_probabilities.csv"
     champ_df.to_csv(champ_path, index=False)
 
-    logger.info("Saved: %s | %s", series_path.name, champ_path.name)
+    # Save pairwise probabilities for all team matchup combinations
+    prob_table = results.get("prob_table", {})
+    if prob_table:
+        pair_rows = [
+            {
+                "higher_seed": higher,
+                "lower_seed": lower,
+                "p_higher_wins": round(p, 4),
+                "p_lower_wins": round(1 - p, 4),
+            }
+            for (higher, lower), p in sorted(prob_table.items(), key=lambda x: -x[1])
+        ]
+        pair_df = pd.DataFrame(pair_rows)
+        pair_path = out_dir / "pairwise_probabilities.csv"
+        pair_df.to_csv(pair_path, index=False)
+        logger.info("Saved: %s | %s | %s", series_path.name, champ_path.name, pair_path.name)
+    else:
+        logger.info("Saved: %s | %s", series_path.name, champ_path.name)
     return series_path
 
 
