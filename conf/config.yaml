@@ -366,6 +366,13 @@ modeling:
   monte_carlo:
     n_simulations: 10000
 
+  # Ensemble class balance — set balanced=true to weight upset (minority) class equally.
+  # This shifts predicted probabilities toward 0.5 and improves upset recall at the cost
+  # of lower precision on heavy favorites.  Use upset_threshold and prob_temperature in
+  # the bracket simulator to tune the decision boundary independently of retraining.
+  class_balance:
+    balanced: true
+
 # ── MLflow ────────────────────────────────────────────────────────────────────
 mlflow:
   tracking_uri: mlruns/

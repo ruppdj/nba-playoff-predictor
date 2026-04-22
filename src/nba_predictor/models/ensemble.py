@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 RANDOM_STATE = cfg.modeling["random_state"]
 EXPERIMENT_NAME = "series_winner_ensemble"
+_BALANCED = cfg.modeling.get("class_balance", {}).get("balanced", False)
 
 
 def get_feature_cols(df: pd.DataFrame) -> list[str]:
@@ -83,14 +84,20 @@ def generate_oof_predictions(
         X_train_sc = scaler.fit_transform(X_train)
         X_test_sc = scaler.transform(X_test)
 
+        cw = "balanced" if _BALANCED else None
+
         # 1. Logistic Regression — stronger regularization to prevent overfitting
-        lr = LogisticRegression(random_state=RANDOM_STATE, max_iter=1000, C=0.05)
+        lr = LogisticRegression(random_state=RANDOM_STATE, max_iter=1000, C=0.05, class_weight=cw)
         lr.fit(X_train_sc, y_train)
         oof_preds[pos_idx, 0] = lr.predict_proba(X_test_sc)[:, 1]
 
         # 2. XGBoost — shallower trees + higher min_child_weight to reduce overfitting
         try:
             import xgboost as xgb
+
+            n_neg = int((y_train == 0).sum())
+            n_pos = int((y_train == 1).sum())
+            spw = float(n_neg) / float(n_pos) if (_BALANCED and n_pos > 0) else 1.0
 
             xgb_model = xgb.XGBClassifier(
                 random_state=RANDOM_STATE,
@@ -102,6 +109,7 @@ def generate_oof_predictions(
                 subsample=0.8,
                 colsample_bytree=0.8,
                 min_child_weight=10,
+                scale_pos_weight=spw,
             )
             xgb_model.fit(X_train, y_train, verbose=False)
             oof_preds[pos_idx, 1] = xgb_model.predict_proba(X_test)[:, 1]
@@ -121,6 +129,7 @@ def generate_oof_predictions(
                 subsample=0.8,
                 colsample_bytree=0.8,
                 min_data_in_leaf=15,
+                class_weight=cw,
                 verbose=-1,
             )
             lgbm_model.fit(X_train, y_train)
@@ -156,8 +165,20 @@ class StackingEnsemble:
         self.scaler_base.fit(X)
         X_sc = self.scaler_base.transform(X)
 
+        cw = "balanced" if _BALANCED else None
+        n_neg = int((y == 0).sum())
+        n_pos = int((y == 1).sum())
+        spw = float(n_neg) / float(n_pos) if (_BALANCED and n_pos > 0) else 1.0
+        logger.info(
+            "Ensemble fit: balanced=%s  n_pos=%d  n_neg=%d  scale_pos_weight=%.2f",
+            _BALANCED,
+            n_pos,
+            n_neg,
+            spw,
+        )
+
         # Stronger regularization on LR to match OOF training configuration
-        lr = LogisticRegression(random_state=RANDOM_STATE, max_iter=1000, C=0.05)
+        lr = LogisticRegression(random_state=RANDOM_STATE, max_iter=1000, C=0.05, class_weight=cw)
         lr.fit(X_sc, y)
         self._base_models["lr"] = ("scaled", lr)
 
@@ -174,6 +195,7 @@ class StackingEnsemble:
                 subsample=0.8,
                 colsample_bytree=0.8,
                 min_child_weight=10,
+                scale_pos_weight=spw,
             )
             xgb_model.fit(X, y, verbose=False)
             self._base_models["xgb"] = ("raw", xgb_model)
@@ -191,6 +213,7 @@ class StackingEnsemble:
                 subsample=0.8,
                 colsample_bytree=0.8,
                 min_data_in_leaf=15,
+                class_weight=cw,
                 verbose=-1,
             )
             lgbm_model.fit(X, y)

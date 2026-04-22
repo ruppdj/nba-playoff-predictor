@@ -16,6 +16,14 @@ Options:
                             prediction uses 0.532, which adds TOR over CLE and
                             MIN over DEN on top of the HOU over LAL call.
                             Upset picks are marked with * in printed output.
+
+  --prob-temperature FLOAT  Temperature scaling applied to all win probabilities
+                            before thresholding. T=1.0 (default) = no change.
+                            T>1 pulls probabilities toward 0.5, increasing upset
+                            odds for all matchups. T=2.0 roughly halves logit
+                            magnitudes (e.g. 75% → 66%, 65% → 61%).
+                            T<1 pushes probabilities toward 0 or 1 (sharper).
+                            Useful when the ensemble is still overconfident.
 """
 
 
@@ -84,6 +92,19 @@ def _get_model_feature_cols(df: pd.DataFrame) -> list[str]:
 
 
 _fallback_log: list[dict] = []
+
+
+def _apply_temperature(p: float, temperature: float) -> float:
+    """Scale a probability toward 0.5 using temperature (logit / T).
+
+    T=1.0 → no change.  T>1 → softer (more upsets at any threshold).
+    T<1   → sharper (stronger favourites).
+    """
+    if temperature == 1.0:
+        return p
+    p = max(1e-7, min(1 - 1e-7, p))
+    logit = float(np.log(p / (1.0 - p)))
+    return float(1.0 / (1.0 + np.exp(-logit / temperature)))
 
 
 def _model_prob(model: Any, feature_row: pd.DataFrame) -> float:
@@ -167,11 +188,14 @@ def _precompute_all_probs(
     model: Any,
     team_store: pd.DataFrame,
     season: int,
+    temperature: float = 1.0,
 ) -> dict[tuple[str, str], float]:
     """Pre-compute P(higher_seed wins) for every possible team pair.
 
     Key: (higher_seed, lower_seed) — lower seed number = home court.
     Returns a dict of (higher, lower) → float probability.
+
+    temperature: applied after ensemble output — T>1 pulls toward 0.5.
     """
     teams = team_store["team"].tolist()
     prob_table: dict[tuple[str, str], float] = {}
@@ -205,7 +229,7 @@ def _precompute_all_probs(
                 )
             ]
         )
-        p = _model_prob(model, feat_row)
+        p = _apply_temperature(_model_prob(model, feat_row), temperature)
         prob_table[(higher, lower)] = p
 
     total_pairs = len(prob_table)
@@ -264,6 +288,7 @@ def simulate_full_bracket(
     n_simulations: int = N_SIMULATIONS,
     random_seed: int = RANDOM_STATE,
     length_model: Any | None = None,
+    temperature: float = 1.0,
 ) -> dict[str, Any]:
     """Simulate all four playoff rounds N times.
 
@@ -272,13 +297,16 @@ def simulate_full_bracket(
       R2:  winner(1v8) vs winner(4v5),  winner(2v7) vs winner(3v6)
       R3:  R2 upper winner vs R2 lower winner  (Conference Finals)
       R4:  East champion vs West champion  (NBA Finals)
+
+    temperature: T>1 softens probabilities toward 0.5 (more upsets);
+                 T=1 (default) is no-op; T<1 sharpens toward 0 or 1.
     """
     rng = random.Random(random_seed)
     _fallback_log.clear()  # reset per-run fallback tracking
 
     # ── Pre-compute all pairwise win probabilities (120 pairs) ───────────────
     logger.info("Pre-computing win probabilities for all team pairs...")
-    prob_table = _precompute_all_probs(winner_model, team_store, season)
+    prob_table = _precompute_all_probs(winner_model, team_store, season, temperature=temperature)
 
     # ── Extract R1 info from bracket_input ───────────────────────────────────
     # List per conference: [(higher, lower, matchup_id), ...]
@@ -681,10 +709,13 @@ def print_full_bracket(results: dict, season: int) -> None:
             f"  ({f['p_winner']*100:.1f}%, in {f['modal_length']})"
             f"{upset_marker}"
         )
-    if results.get("upset_threshold", 0.5) > 0.5:
-        print(
-            f"\n  (* = upset pick — lower seed predicted to win; threshold={results['upset_threshold']:.0%})"
-        )
+    notes = []
+    if results.get("upset_threshold", 0.5) != 0.5:
+        notes.append(f"upset-threshold={results['upset_threshold']:.0%}")
+    if results.get("prob_temperature", 1.0) != 1.0:
+        notes.append(f"temperature={results['prob_temperature']:.2f}")
+    if notes:
+        print(f"\n  (* = upset pick — lower seed predicted to win; {', '.join(notes)})")
 
     # Probability table
     print(f"\n{'='*60}")
@@ -725,6 +756,14 @@ def _parse_args() -> argparse.Namespace:
         help="Pick the lower seed (upset) when P(higher seed wins) < this value. "
         "Default 0.5 = standard. Try 0.55 for more upset picks.",
     )
+    parser.add_argument(
+        "--prob-temperature",
+        type=float,
+        default=1.0,
+        help="Temperature scaling for win probabilities. T=1.0 (default) = no change. "
+        "T>1 pulls toward 0.5 (softer, more upset-friendly). "
+        "T=2.0 roughly halves logit magnitudes: 75%%→66%%, 65%%→61%%.",
+    )
     return parser.parse_args()
 
 
@@ -756,6 +795,11 @@ def main() -> None:
     bracket_input, team_store = _load_bracket_files(args.season)
     logger.info("Bracket: %d R1 matchups, %d teams", len(bracket_input), len(team_store))
 
+    if args.prob_temperature != 1.0:
+        logger.info(
+            "Temperature scaling: T=%.2f (probabilities softened toward 0.5)", args.prob_temperature
+        )
+
     results = simulate_full_bracket(
         bracket_input,
         team_store,
@@ -763,8 +807,10 @@ def main() -> None:
         season=args.season,
         n_simulations=args.n_simulations,
         length_model=length_model,
+        temperature=args.prob_temperature,
     )
     results["upset_threshold"] = args.upset_threshold
+    results["prob_temperature"] = args.prob_temperature
     results["full_bracket"] = build_greedy_bracket(
         results,
         team_store,
