@@ -97,6 +97,7 @@ team_name_map:
   "CHO": "CHO"
   "CHA": "CHO"
   "CHB": "CHO"
+  "CHH": "CHO"
   # Chicago Bulls
   "Chicago Bulls": "CHI"
   "Chicago": "CHI"
@@ -121,6 +122,7 @@ team_name_map:
   "Golden State Warriors": "GSW"
   "Golden State": "GSW"
   "GSW": "GSW"
+  "GOS": "GSW"
   # Houston Rockets
   "Houston Rockets": "HOU"
   "Houston": "HOU"
@@ -183,6 +185,7 @@ team_name_map:
   "Philadelphia 76ers": "PHI"
   "Philadelphia": "PHI"
   "PHI": "PHI"
+  "PHL": "PHI"
   # Phoenix Suns
   "Phoenix Suns": "PHO"
   "Phoenix": "PHO"
@@ -201,6 +204,7 @@ team_name_map:
   "San Antonio Spurs": "SAS"
   "San Antonio": "SAS"
   "SAS": "SAS"
+  "SAN": "SAS"
   # Toronto Raptors
   "Toronto Raptors": "TOR"
   "Toronto": "TOR"
@@ -209,6 +213,7 @@ team_name_map:
   "Utah Jazz": "UTA"
   "Utah": "UTA"
   "UTA": "UTA"
+  "UTH": "UTA"
   # Washington Wizards / Bullets
   "Washington Wizards": "WAS"
   "Washington Bullets": "WAS"

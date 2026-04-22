@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from nba_predictor.config import cfg
+from nba_predictor.features.matchup_features import _compute_h2h
 
 logger = logging.getLogger(__name__)
 
@@ -217,6 +218,19 @@ def build_bracket_input(season: int, features_season: int) -> pd.DataFrame:
     """Build first-round bracket_input DataFrame."""
     team_store = build_team_store(season, features_season)
 
+    # Load game logs for H2H computation
+    game_logs_dir = cfg.project_root / "data" / "raw" / "nba_api" / "team_game_logs"
+    game_logs_path = game_logs_dir / "team_game_logs_all.parquet"
+    game_logs: pd.DataFrame | None = None
+    if game_logs_path.exists():
+        game_logs = pd.read_parquet(game_logs_path)
+    else:
+        logger.warning(
+            "Game logs not found at %s — H2H features will be null. "
+            "Run 'make fetch' to download game logs.",
+            game_logs_path,
+        )
+
     rows = []
     for conf, matchups in BRACKET_2026.items():
         labels = ROUND1_IDS[conf]
@@ -234,6 +248,21 @@ def build_bracket_input(season: int, features_season: int) -> pd.DataFrame:
                 season,
                 team_store,
             )
+            # Populate H2H from game logs if available
+            if game_logs is not None:
+                h2h = _compute_h2h(game_logs, features_season, higher, lower)
+                row["H2H_win_pct"] = h2h["H2H_win_pct"]
+                row["H2H_NRtg_avg"] = h2h["H2H_NRtg_avg"]
+                row["H2H_games_played"] = h2h["H2H_games_played"]
+                if h2h["H2H_games_played"] == 0:
+                    logger.warning(
+                        "H2H: no regular-season games found for %s vs %s in %d — "
+                        "check that game logs include the full %d regular season.",
+                        higher,
+                        lower,
+                        features_season,
+                        features_season,
+                    )
             rows.append(row)
 
     return pd.DataFrame(rows)

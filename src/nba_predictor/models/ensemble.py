@@ -83,12 +83,12 @@ def generate_oof_predictions(
         X_train_sc = scaler.fit_transform(X_train)
         X_test_sc = scaler.transform(X_test)
 
-        # 1. Logistic Regression
-        lr = LogisticRegression(random_state=RANDOM_STATE, max_iter=1000, C=1.0)
+        # 1. Logistic Regression — stronger regularization to prevent overfitting
+        lr = LogisticRegression(random_state=RANDOM_STATE, max_iter=1000, C=0.05)
         lr.fit(X_train_sc, y_train)
         oof_preds[pos_idx, 0] = lr.predict_proba(X_test_sc)[:, 1]
 
-        # 2. XGBoost (if available)
+        # 2. XGBoost — shallower trees + higher min_child_weight to reduce overfitting
         try:
             import xgboost as xgb
 
@@ -96,11 +96,12 @@ def generate_oof_predictions(
                 random_state=RANDOM_STATE,
                 use_label_encoder=False,
                 eval_metric="logloss",
-                n_estimators=300,
-                max_depth=4,
+                n_estimators=50,
+                max_depth=2,
                 learning_rate=0.05,
                 subsample=0.8,
                 colsample_bytree=0.8,
+                min_child_weight=10,
             )
             xgb_model.fit(X_train, y_train, verbose=False)
             oof_preds[pos_idx, 1] = xgb_model.predict_proba(X_test)[:, 1]
@@ -108,17 +109,18 @@ def generate_oof_predictions(
             logger.warning("XGBoost not available — using LR predictions for slot 1")
             oof_preds[pos_idx, 1] = oof_preds[pos_idx, 0]
 
-        # 3. LightGBM (if available)
+        # 3. LightGBM — fewer leaves + min_data_in_leaf to reduce overfitting
         try:
             import lightgbm as lgb
 
             lgbm_model = lgb.LGBMClassifier(
                 random_state=RANDOM_STATE,
-                n_estimators=300,
-                num_leaves=31,
+                n_estimators=50,
+                num_leaves=7,
                 learning_rate=0.05,
                 subsample=0.8,
                 colsample_bytree=0.8,
+                min_data_in_leaf=15,
                 verbose=-1,
             )
             lgbm_model.fit(X_train, y_train)
@@ -154,7 +156,8 @@ class StackingEnsemble:
         self.scaler_base.fit(X)
         X_sc = self.scaler_base.transform(X)
 
-        lr = LogisticRegression(random_state=RANDOM_STATE, max_iter=1000, C=1.0)
+        # Stronger regularization on LR to match OOF training configuration
+        lr = LogisticRegression(random_state=RANDOM_STATE, max_iter=1000, C=0.05)
         lr.fit(X_sc, y)
         self._base_models["lr"] = ("scaled", lr)
 
@@ -165,11 +168,12 @@ class StackingEnsemble:
                 random_state=RANDOM_STATE,
                 use_label_encoder=False,
                 eval_metric="logloss",
-                n_estimators=300,
-                max_depth=4,
+                n_estimators=50,
+                max_depth=2,
                 learning_rate=0.05,
                 subsample=0.8,
                 colsample_bytree=0.8,
+                min_child_weight=10,
             )
             xgb_model.fit(X, y, verbose=False)
             self._base_models["xgb"] = ("raw", xgb_model)
@@ -181,11 +185,12 @@ class StackingEnsemble:
 
             lgbm_model = lgb.LGBMClassifier(
                 random_state=RANDOM_STATE,
-                n_estimators=300,
-                num_leaves=31,
+                n_estimators=50,
+                num_leaves=7,
                 learning_rate=0.05,
                 subsample=0.8,
                 colsample_bytree=0.8,
+                min_data_in_leaf=15,
                 verbose=-1,
             )
             lgbm_model.fit(X, y)
@@ -197,8 +202,9 @@ class StackingEnsemble:
         oof_preds = generate_oof_predictions(series_df, self.feature_cols)
         oof_preds = np.nan_to_num(oof_preds, nan=0.5)
 
-        # Fit calibrated meta-learner
-        self.meta_calibrated = CalibratedClassifierCV(self.meta_learner, cv=3, method="isotonic")
+        # Sigmoid calibration (Platt scaling) — extrapolates better than isotonic
+        # for inputs that fall outside the OOF probability range
+        self.meta_calibrated = CalibratedClassifierCV(self.meta_learner, cv=3, method="sigmoid")
         self.meta_calibrated.fit(oof_preds, y)
         logger.info("Stacking ensemble fitted.")
         return self
@@ -218,7 +224,9 @@ class StackingEnsemble:
         return probs
 
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
-        base_probs = self._get_base_probs(X.fillna(0))
+        # Always restrict to the feature set used at training time
+        X_aligned = X[self.feature_cols].fillna(0)
+        base_probs = self._get_base_probs(X_aligned)
         return self.meta_calibrated.predict_proba(base_probs)
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:

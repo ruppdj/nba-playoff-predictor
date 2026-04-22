@@ -83,15 +83,34 @@ def _get_model_feature_cols(df: pd.DataFrame) -> list[str]:
     return [c for c in all_feat if c in df.columns]
 
 
+_fallback_log: list[dict] = []
+
+
 def _model_prob(model: Any, feature_row: pd.DataFrame) -> float:
-    """Return P(higher_seed wins) for a single matchup row."""
+    """Return P(higher_seed wins) for a single matchup row.
+
+    Tries the trained ensemble first. On any failure, falls back to the
+    NRtg-only MC logistic formula and logs a WARNING so callers can report
+    fallback rates. Never silently uses a different model than the trained one.
+    """
     feat_cols = _get_model_feature_cols(feature_row)
     X = feature_row[feat_cols].fillna(0)
     try:
-        return float(model.predict_proba(X)[:, 1][0])
+        p = float(model.predict_proba(X)[:, 1][0])
+        if not (0.0 <= p <= 1.0):
+            raise ValueError(f"predict_proba returned out-of-range value: {p}")
+        return p
     except Exception as e:
-        logger.debug("predict_proba fallback (%s)", e)
+        higher = feature_row.get("higher_seed", pd.Series(["?"])).iloc[0]
+        lower = feature_row.get("lower_seed", pd.Series(["?"])).iloc[0]
+        logger.warning(
+            "⚠️  Ensemble fallback to MC NRtg formula for %s vs %s: %s",
+            higher,
+            lower,
+            e,
+        )
         delta_nrtg = float(X.get("delta_NRtg", pd.Series([0.0])).iloc[0])
+        _fallback_log.append({"higher": higher, "lower": lower, "reason": str(e)})
         return simulate_series_from_features({"delta_NRtg": delta_nrtg})["p_higher_seed_wins"]
 
 
@@ -189,7 +208,23 @@ def _precompute_all_probs(
         p = _model_prob(model, feat_row)
         prob_table[(higher, lower)] = p
 
-    logger.info("Pre-computed win probabilities for %d team pairs", len(prob_table))
+    total_pairs = len(prob_table)
+    n_fallback = len(_fallback_log)
+    fallback_pct = 100 * n_fallback / total_pairs if total_pairs else 0
+    if n_fallback > 0:
+        logger.warning(
+            "⚠️  PREDICTION RUN SUMMARY: %d/%d pairs (%.0f%%) used MC NRtg fallback "
+            "instead of trained ensemble. Run 'make train' to fix the ensemble.",
+            n_fallback,
+            total_pairs,
+            fallback_pct,
+        )
+    else:
+        logger.info(
+            "Prediction run: %d pairs all from trained ensemble (0%% fallback).", total_pairs
+        )
+
+    logger.info("Pre-computed win probabilities for %d team pairs", total_pairs)
     return prob_table
 
 
@@ -239,6 +274,7 @@ def simulate_full_bracket(
       R4:  East champion vs West champion  (NBA Finals)
     """
     rng = random.Random(random_seed)
+    _fallback_log.clear()  # reset per-run fallback tracking
 
     # ── Pre-compute all pairwise win probabilities (120 pairs) ───────────────
     logger.info("Pre-computing win probabilities for all team pairs...")
@@ -566,8 +602,9 @@ def save_predictions(results: dict, season: int) -> Path:
     champ_path = out_dir / "champion_probabilities.csv"
     champ_df.to_csv(champ_path, index=False)
 
-    # Save pairwise probabilities for all team matchup combinations
+    # Save pairwise probabilities with prediction_source column
     prob_table = results.get("prob_table", {})
+    fallback_pairs = {(row["higher"], row["lower"]) for row in _fallback_log}
     if prob_table:
         pair_rows = [
             {
@@ -575,13 +612,26 @@ def save_predictions(results: dict, season: int) -> Path:
                 "lower_seed": lower,
                 "p_higher_wins": round(p, 4),
                 "p_lower_wins": round(1 - p, 4),
+                "prediction_source": "mc_fallback"
+                if (higher, lower) in fallback_pairs
+                else "ensemble",
             }
             for (higher, lower), p in sorted(prob_table.items(), key=lambda x: -x[1])
         ]
         pair_df = pd.DataFrame(pair_rows)
         pair_path = out_dir / "pairwise_probabilities.csv"
         pair_df.to_csv(pair_path, index=False)
-        logger.info("Saved: %s | %s | %s", series_path.name, champ_path.name, pair_path.name)
+
+        n_mc = sum(1 for r in pair_rows if r["prediction_source"] == "mc_fallback")
+        n_ens = len(pair_rows) - n_mc
+        logger.info(
+            "Saved: %s | %s | %s  (ensemble=%d, mc_fallback=%d)",
+            series_path.name,
+            champ_path.name,
+            pair_path.name,
+            n_ens,
+            n_mc,
+        )
     else:
         logger.info("Saved: %s | %s", series_path.name, champ_path.name)
     return series_path

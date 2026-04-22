@@ -211,29 +211,91 @@ def _get_era(season: int) -> str:
     return cfg.get_era(season)
 
 
+def _normalize_abbrev(abbrev: str) -> str:
+    """Normalize an NBA API team abbreviation to canonical bball-ref form."""
+    try:
+        return cfg.normalize_team(abbrev)
+    except KeyError:
+        return abbrev
+
+
+def _prepare_game_logs(game_logs: pd.DataFrame) -> pd.DataFrame:
+    """Parse MATCHUP field to add Team_abbrev, opp_abbrev, and PLUS_MINUS columns.
+
+    Game logs from the NBA API store the MATCHUP string ('ATL @ MIA') and PTS but
+    have no Team_abbrev, OPP_abbrev, or PLUS_MINUS columns. This function derives
+    them by:
+      1. Parsing MATCHUP to get both team abbreviations.
+      2. Self-joining on Game_ID to get opponent PTS, then computing margin.
+    """
+    if "Team_abbrev" in game_logs.columns and "opp_abbrev" in game_logs.columns:
+        return game_logs
+
+    logs = game_logs.copy()
+
+    # Parse 'ATL @ MIA'  →  team=ATL, opp=MIA
+    # Parse 'ATL vs. NJN' → team=ATL, opp=NJN
+    parts = logs["MATCHUP"].str.split(r" (?:@|vs\.?) ", expand=True, n=1)
+    logs["Team_abbrev"] = parts[0].str.strip().map(_normalize_abbrev)
+    logs["opp_abbrev"] = parts[1].str.strip().map(_normalize_abbrev)
+
+    # Compute PLUS_MINUS = PTS − opponent_PTS via self-join on Game_ID
+    pts_map = logs.set_index(["Game_ID", "Team_abbrev"])["PTS"]
+
+    def _margin(row: pd.Series) -> float:
+        try:
+            return float(row["PTS"]) - float(pts_map.loc[(row["Game_ID"], row["opp_abbrev"])])
+        except KeyError:
+            return float("nan")
+
+    logs["PLUS_MINUS"] = logs.apply(_margin, axis=1)
+    return logs
+
+
+# Cache prepared logs to avoid recomputing on every series call
+_prepared_logs_cache: dict[int, pd.DataFrame] = {}
+
+
 def _compute_h2h(game_logs: pd.DataFrame, season: int, higher_seed: str, lower_seed: str) -> dict:
-    """Compute head-to-head regular season stats between two teams in a season."""
-    logs = game_logs[game_logs["season"] == season].copy()
-    if logs.empty or "Team_abbrev" not in logs.columns:
+    """Compute head-to-head regular season stats between two teams in a season.
+
+    Returns H2H_win_pct, H2H_NRtg_avg, and H2H_games_played from the higher
+    seed's perspective.  All values are NaN / 0 when no matchups are found.
+    """
+    global _prepared_logs_cache
+
+    if season not in _prepared_logs_cache:
+        season_logs = game_logs[game_logs["season"] == season].copy()
+        if season_logs.empty:
+            return {"H2H_win_pct": np.nan, "H2H_NRtg_avg": np.nan, "H2H_games_played": 0}
+        _prepared_logs_cache[season] = _prepare_game_logs(season_logs)
+
+    logs = _prepared_logs_cache[season]
+
+    if "Team_abbrev" not in logs.columns:
+        logger.warning(
+            "H2H: Team_abbrev missing from game logs for season %d — H2H features will be null",
+            season,
+        )
         return {"H2H_win_pct": np.nan, "H2H_NRtg_avg": np.nan, "H2H_games_played": 0}
 
-    # Games where higher_seed hosted lower_seed or vice versa
-    h2h_games = logs[
-        (
-            (logs["Team_abbrev"] == higher_seed)
-            & logs.get("OPP_abbrev", pd.Series(dtype=str)).eq(lower_seed)
-        )
-    ]
+    h2h_games = logs[(logs["Team_abbrev"] == higher_seed) & (logs["opp_abbrev"] == lower_seed)]
 
     n_games = len(h2h_games)
     if n_games == 0:
+        logger.debug(
+            "H2H: no regular-season games found for %s vs %s in %d",
+            higher_seed,
+            lower_seed,
+            season,
+        )
         return {"H2H_win_pct": np.nan, "H2H_NRtg_avg": np.nan, "H2H_games_played": 0}
 
-    wins = (h2h_games.get("WL", pd.Series(dtype=str)) == "W").sum()
-    nrtg_avg = h2h_games.get("PLUS_MINUS", pd.Series(dtype=float)).mean()
+    wins = (h2h_games["WL"] == "W").sum()
+    nrtg_avg = h2h_games["PLUS_MINUS"].mean()
 
     return {
-        "H2H_win_pct": wins / n_games,
-        "H2H_NRtg_avg": nrtg_avg,
-        "H2H_games_played": n_games,
+        "H2H_win_pct": float(wins / n_games),
+        "H2H_NRtg_avg": float(nrtg_avg),
+        "H2H_games_played": int(n_games),
     }

@@ -8,27 +8,36 @@ A reproducible machine learning experiment for predicting NBA playoff series win
 
 | Model | Accuracy | Log-Loss | Brier Score | ECE |
 |-------|----------|----------|-------------|-----|
-| Naive (always higher seed) | 75.4% | — | — | — |
-| **Stacking Ensemble** | **74.9% ± 13.4%** | **0.548 ± 0.180** | **0.179 ± 0.066** | **0.219 ± 0.059** |
+| Naive (always higher seed) | 72.8% | — | — | — |
+| **Stacking Ensemble (Phase 2)** | **72.8% ± 9.6%** | **0.563 ± 0.158** | **0.187 ± 0.058** | — |
 
-*Walk-forward CV across 13 test seasons (2013–2025), 15 series per season. Accuracy matches the naive seed-based baseline because the NBA higher seed wins ~75% of the time — see notebook 08 for per-season breakdown and upset recall analysis.*
+*Walk-forward CV across 13 test seasons (2013–2025), 15 series per season. See notebook 08 for per-season breakdown and upset recall analysis.*
 
-### 2026 Bracket Prediction
+### 2026 Bracket Prediction (Phase 2 — Ensemble Model)
 
-**Predicted champion: OKC Thunder (12.0%)** — NBA Finals: OKC def. BOS in 5.
+**Predicted champion: OKC Thunder (33.2%)** — NBA Finals: OKC def. DET in 7.
 
-Bracket uses a 53.2% upset threshold — the lower seed is picked whenever `P(higher seed wins) < 0.532`, adding upset picks in the three closest matchups. Upsets marked with *.
+Ensemble model now fully operational: 100% of predictions from stacking ensemble (LR + XGBoost + LightGBM + meta-learner). Phase 1 predictions used 0% ensemble (MC NRtg-only fallback).
+
+Bracket uses a 53.2% upset threshold. Upsets marked with *.
 
 | Round | East | West |
 |-------|------|------|
-| R1 | DET def. ORL (in 6), BOS def. PHI (in 5), NYK def. ATL (in 5), **TOR* def. CLE (in 5)** | OKC def. PHO (in 5), SAS def. POR (in 7), **MIN* def. DEN (in 6)**, **HOU* def. LAL (in 5)** |
-| R2 | DET def. TOR (in 6), BOS def. NYK (in 6) | OKC def. HOU (in 5), SAS def. MIN (in 6) |
-| CF | **BOS*** def. DET (in 5) | **OKC** def. SAS (in 7) |
-| Finals | **OKC** def. BOS (in 5) | |
+| R1 | DET def. ORL (in 6, 75.2%), BOS def. PHI (in 4, 70.0%), NYK def. ATL (in 5, 80.9%), CLE def. TOR (in 7, 79.3%) | OKC def. PHO (in 4, 82.6%), SAS def. POR (in 4, 76.1%), DEN def. MIN (in 6, 63.3%), LAL def. HOU (in 5, 69.4%) |
+| R2 | DET def. CLE (in 6, 69.4%), BOS def. NYK (in 6, 63.1%) | OKC def. LAL (in 7, 79.7%), SAS def. DEN (in 6, 61.8%) |
+| CF | DET def. BOS (in 7, 68.7%) | OKC def. SAS (in 7, 71.3%) |
+| Finals | **OKC** def. DET (in 7, 56.3%) | |
 
-3 upsets predicted (historical average: 3.8 per playoff). Play-in results confirmed April 18, 2026: PHI=E7, ORL=E8, PHO=W8 (LAC missed playoffs), LAL=W4, HOU=W5.
+0 upsets predicted at 53.2% threshold (all R1 probabilities ≥ 63%). Play-in results confirmed April 18, 2026: PHI=E7, ORL=E8, PHO=W8 (LAC missed playoffs), LAL=W4, HOU=W5.
 
-> See `data/predictions/2026/bracket_output.csv` for per-series probabilities and series-length distributions.
+> **Prediction run summary (Phase 2):**
+> - Ensemble used: 120/120 pairs (100%)
+> - MC fallback: 0/120 pairs (0%)
+> - H2H data: populated for all 8 R1 matchups (3–5 games each)
+> - Injury data: not available (proxy only — `has_injury_data=0` for all teams)
+> - Known limitation: model is conservative on upsets (upset_recall ≈ 0% in recent folds)
+
+> See `data/predictions/2026/bracket_output.csv` and `data/predictions/2026/pairwise_probabilities.csv`.
 > Run `python -m nba_predictor.predict.bracket_simulator --upset-threshold 0.532` to reproduce.
 
 ---
